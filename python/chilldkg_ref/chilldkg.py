@@ -45,7 +45,6 @@ __all__ = [
     "coordinator_investigate",
     "recover",
     # Exceptions
-    "InvalidSignatureInCertificateError",
     "HostSeckeyError",
     "SessionParamsError",
     "InvalidHostPubkeyError",
