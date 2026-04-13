@@ -638,8 +638,6 @@ Unless participants abort due to errors, all participants run the same code and 
 
 [^no-reliable-broadcast]: Recall that we do not assume a *reliable* broadcast channel but instead that the coordinator has separate a point-to-point communication links to each participant. In other words, the protocol prescribes that an honest coordinator sends the same message to every participant, but the security of the protocol does not depend on the coordinator adhering to that prescribe.
 
-TODO Add on-wire messages sizes to the figure after defining message serialization format.
-
 ![The figure shows the message flow between a participant and a coordinator.
 The first of two phases named "Generation of host public keys" involves the participant invoking the hostpubkey_gen function with parameter hostseckey and sending the returned hostpubkey to the coordinator.
 The second phase named "Session" is initiated by the coordinator sending hostpubkeys and the threshold t to the participant.
