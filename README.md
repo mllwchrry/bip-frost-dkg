@@ -208,7 +208,9 @@ We make the following modifications as compared to the original SimplPedPop prop
  - Individual participants' public shares are added to the output of the DKG. This allows partial signature verification.
  - The participants send VSS commitments to an untrusted coordinator instead of directly to each other. This lets the coordinator aggregate VSS commitments, which reduces communication costs. Nevertheless, if a session fails, participants are able to investigate who provided invalid secret shares by asking the coordinator for the other participants' individual contributions to their public share.
  - To prevent a malicious participant from embedding a Taproot script path in the threshold public key, the participants tweak the VSS commitment such that the corresponding threshold public key has an unspendable script path.
- - ~The proofs of knowledge are not included in the data for the equality check. This will reduce the size of the backups in ChillDKG.~ (TODO: This will be fixed in an updated version of the paper.)
+ - The proofs of possession are omitted from the data for the equality check.[^pop-eq] This reduces the size of the backups in ChillDKG.
+
+[^pop-eq]: An inspection of the security proof [CRGS23] shows that this modification does affect security.
 
 Our variant of the SimplPedPop protocol then works as follows:
 
