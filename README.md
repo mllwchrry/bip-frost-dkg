@@ -489,7 +489,7 @@ without careful further consideration, which is not in the scope of this documen
 
 ### Protocol Parties and Network Setup
 
-There are `n >= 2` *participants*, `t` of which will be required to produce a signature.
+There are `n >= 1` *participants*, `t` of which will be required to produce a signature.
 Each participant has a point-to-point communication link to the *coordinator*
 (but participants do not have direct communication links to each other).
 
