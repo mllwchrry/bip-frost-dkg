@@ -1,5 +1,5 @@
-# Exclude vendored package.
-extend-exclude = ["secp256k1lab/**"]
+# Exclude vendored packages.
+extend-exclude = ["secp256k1lab/**", "ed25519lab/**"]
 
 [lint]
 extend-ignore = [

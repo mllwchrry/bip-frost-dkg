@@ -1,0 +1,37 @@
+[project]
+name = "ed25519lab"
+version = "0.1.0"
+description = "An INSECURE implementation of the Ed25519 curve and related cryptographic schemes, intended for prototyping, experimentation and education"
+readme = "README.md"
+authors = [
+    # TODO fill in before publishing
+    { name = "Illia", email = "melnykia-ipt@lll.kpi.ua" },
+]
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["COPYING"]
+keywords = ["ed25519", "elliptic curves", "cryptography", "FROST", "Solana"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Topic :: Security :: Cryptography",
+]
+dependencies = []
+
+[dependency-groups]
+dev = ["pynacl>=1.6.2"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.mypy]
+files = ["src", "test"]
+
+[[tool.mypy.overrides]]
+module = ["nacl.*"]
+ignore_missing_imports = true
