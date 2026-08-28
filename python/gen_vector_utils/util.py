@@ -6,13 +6,21 @@ from typing import TypeAlias
 
 from chilldkg_ref import chilldkg, encpedpop
 
+from ed25519lab.ed25519 import B, FE, GE, Scalar
+
 ErrorInfo: TypeAlias = "dict[str, int | str | ErrorInfo]"
 
-# Adversarial 32-byte Ed25519 point encodings for test vectors.
-# These four are refused by both GE.from_bytes and its _with_identity variant:
+# GE forms of the off-subgroup points, for the list[GE] VSS-commitment fields.
+# Both are canonically encoded but sit outside the prime-order subgroup.
+TORSION_GE = GE(FE(0), FE(-1))  # order-2 torsion point (0, -1)
+MIXED_ORDER_GE = Scalar(5) * B + TORSION_GE  # [k]B + torsion
+
+# Adversarial 32-byte Ed25519 point encodings, for the byte-typed fields. All five
+# are refused by both GE.from_bytes and its _with_identity variant:
 NONCANONICAL_Y = b"\xff" * 32  # y >= p (non-canonical y coordinate)
 NO_VALID_X = (2).to_bytes(32, "little")  # canonical y, no valid x (off-curve)
 SMALL_ORDER_POINT = bytes(32)  # y == 0: an order-4 torsion point
+MIXED_ORDER_POINT = MIXED_ORDER_GE.to_bytes()  # bytes of MIXED_ORDER_GE
 NONCANONICAL_IDENTITY = bytes([1]) + bytes(30) + bytes([0x80])  # x == 0, sign bit set
 # The canonical neutral element: refused by the strict from_bytes (used for
 # individual keys/nonces, which can never be it) but ACCEPTED by _with_identity (used for

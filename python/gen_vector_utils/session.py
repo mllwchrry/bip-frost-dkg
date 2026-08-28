@@ -292,9 +292,7 @@ def generate_recover_vectors():
     # --- Error test case: last share in enc_secshare list is out of range ---
     n = len(hostpubkeys)
     cert_len = chilldkg.certeq_cert_len(n)
-    invalid_encshare = bytes.fromhex(
-        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
-    )
+    invalid_encshare = bytes_from_int(Scalar.SIZE)
     invalid_crec = crec[: -cert_len - 32] + invalid_encshare + crec[-cert_len:]
     error = expect_exception(
         lambda: chilldkg.coordinator_recover(invalid_crec), chilldkg.RecoveryDataError

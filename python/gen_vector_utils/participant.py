@@ -8,8 +8,13 @@ from chilldkg_ref import chilldkg
 from .fixtures import AUX_RAND_HEX, HOSTSECKEYS_HEX, RANDOMS_HEX, THRESHOLD_CONFIGS
 from .util import (
     IDENTITY_POINT,
+    MIXED_ORDER_GE,
+    MIXED_ORDER_POINT,
+    NONCANONICAL_IDENTITY,
     NONCANONICAL_Y,
     NO_VALID_X,
+    SMALL_ORDER_POINT,
+    TORSION_GE,
     assign_tc_ids,
     bytes_to_hex,
     dkg_output_asdict,
@@ -187,6 +192,57 @@ def generate_participant_step1_group(t, n):
             "random": bytes_to_hex(random),
             "expectedError": error,
             "comment": "hostpubkeys list contains the identity",
+        }
+    )
+    # --- Error test case: hostpubkeys list contains a small-order (torsion) point ---
+    invalid_hostpubkey = SMALL_ORDER_POINT
+    with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
+    invalid_params = chilldkg.SessionParams(with_invalid, t)
+    error = expect_exception(
+        lambda: chilldkg.participant_step1(hostseckeys[0], invalid_params, random),
+        chilldkg.InvalidHostPubkeyError,
+    )
+    error_cases.append(
+        {
+            "hostseckey": bytes_to_hex(hostseckeys[0]),
+            "params": params_asdict(invalid_params),
+            "random": bytes_to_hex(random),
+            "expectedError": error,
+            "comment": "hostpubkeys list contains a small-order (torsion) point",
+        }
+    )
+    # --- Error test case: hostpubkeys list contains a mixed-order point ---
+    invalid_hostpubkey = MIXED_ORDER_POINT
+    with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
+    invalid_params = chilldkg.SessionParams(with_invalid, t)
+    error = expect_exception(
+        lambda: chilldkg.participant_step1(hostseckeys[0], invalid_params, random),
+        chilldkg.InvalidHostPubkeyError,
+    )
+    error_cases.append(
+        {
+            "hostseckey": bytes_to_hex(hostseckeys[0]),
+            "params": params_asdict(invalid_params),
+            "random": bytes_to_hex(random),
+            "expectedError": error,
+            "comment": "hostpubkeys list contains a mixed-order point",
+        }
+    )
+    # --- Error test case: hostpubkeys list contains a non-canonical identity encoding ---
+    invalid_hostpubkey = NONCANONICAL_IDENTITY
+    with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
+    invalid_params = chilldkg.SessionParams(with_invalid, t)
+    error = expect_exception(
+        lambda: chilldkg.participant_step1(hostseckeys[0], invalid_params, random),
+        chilldkg.InvalidHostPubkeyError,
+    )
+    error_cases.append(
+        {
+            "hostseckey": bytes_to_hex(hostseckeys[0]),
+            "params": params_asdict(invalid_params),
+            "random": bytes_to_hex(random),
+            "expectedError": error,
+            "comment": "hostpubkeys list contains a non-canonical identity encoding",
         }
     )
     # --- Error test case: hostpubkeys list contains duplicate values ---
@@ -494,6 +550,111 @@ def generate_participant_step2_group(t, n):
             "comment": "invalid cmsg1: pubnonces list has the identity at index 1",
         }
     )
+    # --- Error test case: pubnonces list in cmsg1 has a small-order (torsion) point at index 0 (own pubnonce) ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = SMALL_ORDER_POINT
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a small-order (torsion) point at index 0 (own pubnonce)",
+        }
+    )
+    # --- Error test case: pubnonces list in cmsg1 has a small-order (torsion) point at index 1 ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = SMALL_ORDER_POINT
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_faulty_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyParticipantOrCoordinatorError,
+        1,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a small-order (torsion) point at index 1",
+        }
+    )
+    # --- Error test case: pubnonces list in cmsg1 has a mixed-order point at index 0 (own pubnonce) ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = MIXED_ORDER_POINT
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a mixed-order point at index 0 (own pubnonce)",
+        }
+    )
+    # --- Error test case: pubnonces list in cmsg1 has a mixed-order point at index 1 ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = MIXED_ORDER_POINT
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_faulty_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyParticipantOrCoordinatorError,
+        1,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a mixed-order point at index 1",
+        }
+    )
+    # --- Error test case: pubnonces list in cmsg1 has a non-canonical identity encoding at index 0 (own pubnonce) ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = NONCANONICAL_IDENTITY
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a non-canonical identity encoding at index 0 (own pubnonce)",
+        }
+    )
+    # --- Error test case: pubnonces list in cmsg1 has a non-canonical identity encoding at index 1 ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = NONCANONICAL_IDENTITY
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_faulty_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyParticipantOrCoordinatorError,
+        1,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: pubnonces list has a non-canonical identity encoding at index 1",
+        }
+    )
     # --- Error test case: pubnonces list in cmsg1 has duplicate values ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
     invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = (
@@ -563,6 +724,64 @@ def generate_participant_step2_group(t, n):
             "comment": "invalid cmsg1: coms_to_secrets list has the identity at index 1",
         }
     )
+    # --- Error test case: coms_to_secrets list in cmsg1 has a small-order (torsion) point at index 0 ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[0] = TORSION_GE
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: coms_to_secrets list has a small-order (torsion) point at index 0",
+        }
+    )
+    # --- Error test case: coms_to_secrets list in cmsg1 has a mixed-order point at index 0 ---
+    invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[0] = MIXED_ORDER_GE
+    invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: coms_to_secrets list has a mixed-order point at index 0",
+        }
+    )
+    # --- Error test case: coms_to_secrets list in cmsg1 has a non-canonical identity encoding at index 0 ---
+    # A GE always re-serializes canonically, so inject the non-canonical bytes
+    # directly: mark the slot with a distinctive point, find it, and overwrite it.
+    marker_parsed = copy.deepcopy(cmsg1_parsed)
+    marker_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[0] = ARBITRARY_POINT
+    marker_bytes = marker_parsed.to_bytes()
+    offset = marker_bytes.find(ARBITRARY_POINT.to_bytes())
+    assert offset != -1
+    invalid_cmsg1 = (
+        marker_bytes[:offset] + NONCANONICAL_IDENTITY + marker_bytes[offset + 32 :]
+    )
+    error = expect_exception(
+        lambda: chilldkg.participant_step2(
+            hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+        ),
+        chilldkg.FaultyCoordinatorError,
+    )
+    error_cases.append(
+        {
+            "cmsg1": bytes_to_hex(invalid_cmsg1),
+            "expectedError": error,
+            "comment": "invalid cmsg1: coms_to_secrets list has a non-canonical identity encoding at index 0",
+        }
+    )
     # --- Error test case: pop list in cmsg1 has an invalid value at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
     invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.pops[1] = bytes.fromhex(
@@ -618,6 +837,70 @@ def generate_participant_step2_group(t, n):
                 "cmsg1": bytes_to_hex(invalid_cmsg1),
                 "expectedError": error,
                 "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has the identity at index 0",
+            }
+        )
+        # --- Error test case: sum_coms_to_nonconst_terms has a small-order (torsion) point at index 0 ---
+        invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+        invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
+            TORSION_GE
+        )
+        invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+        error = expect_exception(
+            lambda: chilldkg.participant_step2(
+                hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+            ),
+            chilldkg.FaultyCoordinatorError,
+        )
+        error_cases.append(
+            {
+                "cmsg1": bytes_to_hex(invalid_cmsg1),
+                "expectedError": error,
+                "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has a small-order (torsion) point at index 0",
+            }
+        )
+        # --- Error test case: sum_coms_to_nonconst_terms has a mixed-order point at index 0 ---
+        invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+        invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
+            MIXED_ORDER_GE
+        )
+        invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+        error = expect_exception(
+            lambda: chilldkg.participant_step2(
+                hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+            ),
+            chilldkg.FaultyCoordinatorError,
+        )
+        error_cases.append(
+            {
+                "cmsg1": bytes_to_hex(invalid_cmsg1),
+                "expectedError": error,
+                "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has a mixed-order point at index 0",
+            }
+        )
+        # --- Error test case: sum_coms_to_nonconst_terms has a non-canonical identity encoding at index 0 ---
+        # A GE always re-serializes canonically, so inject the non-canonical bytes
+        # directly: mark the slot with a distinctive point, find it, and overwrite it.
+        marker_parsed = copy.deepcopy(cmsg1_parsed)
+        marker_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
+            ARBITRARY_POINT
+        )
+        marker_bytes = marker_parsed.to_bytes()
+        offset = marker_bytes.find(ARBITRARY_POINT.to_bytes())
+        assert offset != -1
+        invalid_cmsg1 = (
+            marker_bytes[:offset] + NONCANONICAL_IDENTITY + marker_bytes[offset + 32 :]
+        )
+        error = expect_exception(
+            lambda: chilldkg.participant_step2(
+                hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+            ),
+            chilldkg.FaultyCoordinatorError,
+        )
+        error_cases.append(
+            {
+                "cmsg1": bytes_to_hex(invalid_cmsg1),
+                "expectedError": error,
+                "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has a non-canonical identity encoding at index 0",
             }
         )
     # --- Error test case: Participant 1 sent an invalid secshare for participant 0 ---
