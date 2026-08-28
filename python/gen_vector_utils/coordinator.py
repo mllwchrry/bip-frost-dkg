@@ -4,6 +4,8 @@ from chilldkg_ref import chilldkg
 
 from .fixtures import AUX_RAND_HEX, HOSTSECKEYS_HEX, RANDOMS_HEX, THRESHOLD_CONFIGS
 from .util import (
+    IDENTITY_POINT,
+    NO_VALID_X,
     assign_tc_ids,
     bytes_to_hex,
     dkg_output_asdict,
@@ -95,7 +97,7 @@ def generate_coordinator_step1_group(t, n):
     )
 
     # --- Error test case: hostpubkeys list contains an invalid value ---
-    invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"  # Invalid x-coordinate
+    invalid_hostpubkey = NO_VALID_X  # off-curve y coordinate
     with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
     invalid_params = chilldkg.SessionParams(with_invalid, t)
     error = expect_exception(
@@ -127,10 +129,10 @@ def generate_coordinator_step1_group(t, n):
         }
     )
 
-    # --- Error test case: hostpubkeys list contains infinite value ---
-    infinity_hostpubkey = b"\x00" * 33  # Infinite point
-    with_infinity = hostpubkeys[:-1] + [infinity_hostpubkey]
-    invalid_params = chilldkg.SessionParams(with_infinity, t)
+    # --- Error test case: hostpubkeys list contains the identity ---
+    identity_hostpubkey = IDENTITY_POINT
+    with_identity = hostpubkeys[:-1] + [identity_hostpubkey]
+    invalid_params = chilldkg.SessionParams(with_identity, t)
     error = expect_exception(
         lambda: chilldkg.coordinator_step1(pmsgs1, invalid_params),
         chilldkg.InvalidHostPubkeyError,
@@ -140,7 +142,7 @@ def generate_coordinator_step1_group(t, n):
             "pmsg1Indices": list(range(len(pmsgs1))),
             "params": params_asdict(invalid_params),
             "expectedError": error,
-            "comment": "hostpubkeys list contains an infinity point",
+            "comment": "hostpubkeys list contains the identity",
         }
     )
 
@@ -218,7 +220,7 @@ def generate_coordinator_step1_group(t, n):
     )
 
     # --- Error test case: pmsg1 (index 1) truncated before pubnonce ---
-    simpl_pmsg_len = 33 * params.t + 64
+    simpl_pmsg_len = 32 * params.t + 64
     truncated_pmsg1 = pmsgs1[1][:simpl_pmsg_len]
     pmsg1_pool.append(bytes_to_hex(truncated_pmsg1))  # index n + 2
     invalid_pmsgs1 = list(pmsgs1)

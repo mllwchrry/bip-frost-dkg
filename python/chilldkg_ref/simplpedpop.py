@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import NamedTuple, NewType, NoReturn
 
-from secp256k1lab.bip340 import schnorr_sign, schnorr_verify
-from secp256k1lab.secp256k1 import GE, Scalar
+from ed25519lab.ed25519 import GE, Scalar
+from ed25519lab.internal_sig import internal_sign, internal_verify
 
 from .util import (
-    BIP_TAG,
     FaultyCoordinatorError,
     FaultyParticipantError,
     FaultyParticipantOrCoordinatorError,
     MsgParseError,
     UnknownFaultyParticipantOrCoordinatorError,
+    tagged_hash_bip_dkg,
 )
 from .vss import VSS, VSSCommitment
 
@@ -31,22 +31,23 @@ class SecshareSumError(ValueError):
 
 Pop = NewType("Pop", bytes)
 
-POP_MSG_TAG = BIP_TAG + "pop message"
-
 
 def pop_msg(participant_id: int) -> bytes:
-    return participant_id.to_bytes(4, byteorder="big")
+    # internal_sign has a fixed challenge tag, so domain separation from other
+    # internal signatures in this protocol (e.g. CertEq) lives in the message:
+    # the "pop message" tag hash is what gets signed.
+    return tagged_hash_bip_dkg(
+        "pop message", participant_id.to_bytes(4, byteorder="big")
+    )
 
 
 def pop_prove(seckey: bytes, participant_id: int, aux_rand: bytes) -> Pop:
-    sig = schnorr_sign(
-        pop_msg(participant_id), seckey, aux_rand=aux_rand, tag_prefix=POP_MSG_TAG
-    )
+    sig = internal_sign(pop_msg(participant_id), seckey, aux=aux_rand)
     return Pop(sig)
 
 
 def pop_verify(pop: Pop, pubkey: bytes, participant_id: int) -> bool:
-    return schnorr_verify(pop_msg(participant_id), pubkey, pop, tag_prefix=POP_MSG_TAG)
+    return internal_verify(pop_msg(participant_id), pubkey, pop)
 
 
 ###
@@ -60,20 +61,20 @@ class ParticipantMsg(NamedTuple):
 
     @staticmethod
     def len_bytes(*, t: int) -> int:
-        return 33 * t + 64
+        return 32 * t + 64
 
     @staticmethod
     def from_bytes(b: bytes, *, t: int) -> ParticipantMsg:
         if len(b) != ParticipantMsg.len_bytes(t=t):
             raise ValueError
 
-        # Read com (33*t bytes)
+        # Read com (32*t bytes)
         try:
-            com = VSSCommitment.from_bytes(b[: 33 * t], t=t)
+            com = VSSCommitment.from_bytes(b[: 32 * t], t=t)
         except ValueError as e:
             raise MsgParseError("invalid VSS commitment") from e
         # Read pop (64 bytes)
-        pop = Pop(b[33 * t :])
+        pop = Pop(b[32 * t :])
 
         return ParticipantMsg(com, pop)
 
@@ -88,33 +89,33 @@ class CoordinatorMsg(NamedTuple):
 
     @staticmethod
     def len_bytes(*, t: int, n: int) -> int:
-        return 97 * n + 33 * (t - 1)
+        return 96 * n + 32 * (t - 1)
 
     @staticmethod
     def from_bytes(b: bytes, *, t: int, n: int) -> CoordinatorMsg:
         if len(b) != CoordinatorMsg.len_bytes(t=t, n=n):
             raise ValueError
 
-        # Read coms_to_secrets (33*n bytes)
+        # Read coms_to_secrets (32*n bytes)
         try:
             coms_to_secrets, rest = (
                 [
-                    GE.from_bytes_compressed_with_infinity(b[i : i + 33])
-                    for i in range(0, 33 * n, 33)
+                    GE.from_bytes_with_identity(b[i : i + 32])
+                    for i in range(0, 32 * n, 32)
                 ],
-                b[33 * n :],
+                b[32 * n :],
             )
         except ValueError as e:
             raise MsgParseError("invalid commitment to secret") from e
 
-        # Read sum_coms_to_nonconst_terms (33*(t-1) bytes)
+        # Read sum_coms_to_nonconst_terms (32*(t-1) bytes)
         try:
             sum_coms_to_nonconst_terms, rest = (
                 [
-                    GE.from_bytes_compressed_with_infinity(rest[i : i + 33])
-                    for i in range(0, 33 * (t - 1), 33)
+                    GE.from_bytes_with_identity(rest[i : i + 32])
+                    for i in range(0, 32 * (t - 1), 32)
                 ],
-                rest[33 * (t - 1) :],
+                rest[32 * (t - 1) :],
             )
         except ValueError as e:
             raise MsgParseError("invalid sum commitment to non-constant term") from e
@@ -127,7 +128,7 @@ class CoordinatorMsg(NamedTuple):
     def to_bytes(self) -> bytes:
         return b"".join(
             [
-                P.to_bytes_compressed_with_infinity()
+                P.to_bytes()
                 for P in self.coms_to_secrets + self.sum_coms_to_nonconst_terms
             ]
         ) + b"".join(self.pops)
@@ -138,18 +139,17 @@ class CoordinatorInvestigationMsg(NamedTuple):
 
     @staticmethod
     def len_bytes(*, n: int) -> int:
-        return 33 * n
+        return 32 * n
 
     @staticmethod
     def from_bytes(b: bytes, *, n: int) -> CoordinatorInvestigationMsg:
         if len(b) != CoordinatorInvestigationMsg.len_bytes(n=n):
             raise ValueError
 
-        # Read partial_pubshares (33*n bytes)
+        # Read partial_pubshares (32*n bytes)
         try:
             partial_pubshares = [
-                GE.from_bytes_compressed_with_infinity(b[i : i + 33])
-                for i in range(0, 33 * n, 33)
+                GE.from_bytes_with_identity(b[i : i + 32]) for i in range(0, 32 * n, 32)
             ]
         except ValueError as e:
             raise MsgParseError("invalid partial pubshare") from e
@@ -157,9 +157,7 @@ class CoordinatorInvestigationMsg(NamedTuple):
         return CoordinatorInvestigationMsg(partial_pubshares)
 
     def to_bytes(self) -> bytes:
-        return b"".join(
-            [P.to_bytes_compressed_with_infinity() for P in self.partial_pubshares]
-        )
+        return b"".join([P.to_bytes() for P in self.partial_pubshares])
 
 
 ###
@@ -279,14 +277,13 @@ def participant_step2(
         if i == participant_id:
             # No need to check our own pop.
             continue
-        if coms_to_secrets[i].infinity:
+        if coms_to_secrets[i].is_identity:
             raise FaultyParticipantOrCoordinatorError(
                 i, "Participant sent invalid commitment"
             )
         # This can be optimized: We serialize the coms_to_secrets[i] here, but
-        # schnorr_verify (inside pop_verify) will need to deserialize it again, which
-        # involves computing a square root to obtain the y coordinate.
-        if not pop_verify(pops[i], coms_to_secrets[i].to_bytes_xonly(), i):
+        # internal_verify (inside pop_verify) will need to deserialize it again.
+        if not pop_verify(pops[i], coms_to_secrets[i].to_bytes(), i):
             raise FaultyParticipantOrCoordinatorError(
                 i, "Participant sent invalid proof-of-knowledge"
             )
@@ -309,8 +306,8 @@ def participant_step2(
     ]
     dkg_output = DKGOutput(
         secshare.to_bytes(),
-        thresh_pk.to_bytes_compressed(),
-        [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        thresh_pk.to_bytes(),
+        [pubshare.to_bytes() for pubshare in pubshares],
     )
     eq_input = t.to_bytes(4, byteorder="big") + sum_coms.to_bytes()
     return dkg_output, eq_input
@@ -402,8 +399,8 @@ def coordinator_step(
 
     dkg_output = DKGOutput(
         None,
-        thresh_pk.to_bytes_compressed(),
-        [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        thresh_pk.to_bytes(),
+        [pubshare.to_bytes() for pubshare in pubshares],
     )
     eq_input = t.to_bytes(4, byteorder="big") + sum_coms.to_bytes()
     return cmsg, dkg_output, eq_input

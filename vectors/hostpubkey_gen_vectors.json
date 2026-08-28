@@ -1,7 +1,7 @@
 {
     "description": [
         "Test vectors for hostpubkey_gen(hostseckey).",
-        "Generates a compressed public key (33 bytes) from a 32-byte host secret key.",
+        "Generates a 32-byte public key (RFC 8032 encoding) from a 32-byte host secret key.",
         "",
         "For each valid test case:",
         "  Call hostpubkey_gen(hostseckey) and verify the result equals expectedHostpubkey.",
@@ -14,8 +14,8 @@
     "validTestCases": [
         {
             "tcId": 1,
-            "hostseckey": "631C047D50A67E45E27ED1FF25FCE179CAF059A2120D346ACD9774C1F2BAB66F",
-            "expectedHostpubkey": "0290D2B2CE35F62C2D88003D1E3E2E43B4BBDE194E849C84E059B2455E9772BAC4",
+            "hostseckey": "631C047D50A67E45E27ED1FF25FCE179CAF059A2120D346ACD9774C1F2BAB60F",
+            "expectedHostpubkey": "66DE5E73C238DDBA28D79A1C5BD41713DED28333A1775686C274C305CA6B7AF8",
             "comment": "valid host secret key"
         }
     ],
@@ -30,7 +30,7 @@
         },
         {
             "tcId": 3,
-            "hostseckey": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+            "hostseckey": "EDD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010",
             "expectedError": {
                 "type": "HostSeckeyError"
             },

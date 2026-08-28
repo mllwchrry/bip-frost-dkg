@@ -1,10 +1,11 @@
-from secp256k1lab.secp256k1 import Scalar
-from secp256k1lab.util import bytes_from_int
+from ed25519lab.ed25519 import B, Scalar
+from ed25519lab.util import bytes_from_int
 
 from chilldkg_ref import chilldkg
 
 from .fixtures import AUX_RAND_HEX, HOSTSECKEYS_HEX, RANDOMS_HEX
 from .util import (
+    NO_VALID_X,
     assign_tc_ids,
     bytes_to_hex,
     dkg_output_asdict,
@@ -17,7 +18,7 @@ from .util import (
 def generate_hostpubkey_vectors():
     description = [
         "Test vectors for hostpubkey_gen(hostseckey).",
-        "Generates a compressed public key (33 bytes) from a 32-byte host secret key.",
+        "Generates a 32-byte public key (RFC 8032 encoding) from a 32-byte host secret key.",
         "",
         "For each valid test case:",
         "  Call hostpubkey_gen(hostseckey) and verify the result equals expectedHostpubkey.",
@@ -30,8 +31,10 @@ def generate_hostpubkey_vectors():
     error_cases = []
 
     # --- Valid test case ---
+    # Ed25519 reads this little-endian, so the top (last) byte is < 0x10 to keep
+    # it a valid scalar below L.
     hostseckey = bytes.fromhex(
-        "631C047D50A67E45E27ED1FF25FCE179CAF059A2120D346ACD9774C1F2BAB66F"
+        "631C047D50A67E45E27ED1FF25FCE179CAF059A2120D346ACD9774C1F2BAB60F"
     )
     expected_pubkey = chilldkg.hostpubkey_gen(hostseckey)
     valid_cases.append(
@@ -93,7 +96,7 @@ def generate_hostpubkey_vectors():
 def generate_params_hash_vectors():
     description = [
         "Test vectors for params_hash(params).",
-        "Computes a 32-byte hash of the session parameters (hostpubkeys, threshold).",
+        "Computes a 64-byte hash of the session parameters (hostpubkeys, threshold).",
         "",
         "For each valid test case:",
         "  Call params_hash(params) and verify the result equals expectedParamsHash.",
@@ -141,7 +144,7 @@ def generate_params_hash_vectors():
         }
     )
     # --- Error test case: hostpubkeys list contains an invalid value ---
-    invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"  # Invalid x-coordinate
+    invalid_hostpubkey = NO_VALID_X  # off-curve y coordinate
     t = 2
     with_invalid = [hostpubkeys[0], invalid_hostpubkey, hostpubkeys[2]]
     invalid_params = chilldkg.SessionParams(with_invalid, t)
@@ -273,8 +276,8 @@ def generate_recover_vectors():
         }
     )
     # --- Error test case: first coefficient of sum_coms is invalid ---
-    invalid_ge = b"\x03" + 31 * b"\x00" + b"\x05"  # Invalid x-coordinate
-    invalid_crec = crec[:4] + invalid_ge + crec[4 + 33 :]
+    invalid_ge = NO_VALID_X  # off-curve y coordinate
+    invalid_crec = crec[:4] + invalid_ge + crec[4 + 32 :]
     error = expect_exception(
         lambda: chilldkg.coordinator_recover(invalid_crec), chilldkg.RecoveryDataError
     )
@@ -306,7 +309,7 @@ def generate_recover_vectors():
     )
     # --- Error test case: invalid threshold ---
     t = params.t
-    invalid_crec = b"\x00" * 4 + crec[4 + 33 * t :]
+    invalid_crec = b"\x00" * 4 + crec[4 + 32 * t :]
     error = expect_exception(
         lambda: chilldkg.coordinator_recover(invalid_crec), chilldkg.RecoveryDataError
     )
@@ -319,8 +322,8 @@ def generate_recover_vectors():
         }
     )
     # --- Error test case: first pubkey in the hostpubkey list is invalid ---
-    invalid_ge = b"\x03" + 31 * b"\x00" + b"\x05"
-    invalid_crec = crec[: 4 + 33 * t] + invalid_ge + crec[4 + 33 * t + 33 :]
+    invalid_ge = NO_VALID_X
+    invalid_crec = crec[: 4 + 32 * t] + invalid_ge + crec[4 + 32 * t + 32 :]
     error = expect_exception(
         lambda: chilldkg.coordinator_recover(invalid_crec), chilldkg.RecoveryDataError
     )
@@ -335,11 +338,11 @@ def generate_recover_vectors():
     # --- Error test case: last pubnonce in the pubnonces list was tampered with ---
     n = len(hostpubkeys)
     cert_len = chilldkg.certeq_cert_len(n)
-    rand_ge = bytes.fromhex(
-        "03421F5FC9A21065445C96FDB91C0C1E2F2431741C72713B4B99DDCB316F31E9FC"
-    )
+    rand_ge = (
+        Scalar(0x421F5FC9A21065445C96FDB91C0C1E2F2431741C72713B4B99DDCB316F31E9FC) * B
+    ).to_bytes()
     invalid_crec = (
-        crec[: -cert_len - 32 * n - 33] + rand_ge + crec[-cert_len - 32 * n :]
+        crec[: -cert_len - 32 * n - 32] + rand_ge + crec[-cert_len - 32 * n :]
     )
     error = expect_exception(
         lambda: chilldkg.coordinator_recover(invalid_crec), chilldkg.RecoveryDataError

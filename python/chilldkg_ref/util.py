@@ -1,8 +1,8 @@
 from typing import Any
 
-from secp256k1lab.util import tagged_hash
+from ed25519lab.util import tagged_hash
 
-BIP_TAG = "BIP DKG/"
+BIP_TAG = "ChillDKG-ed25519-v1/"
 
 
 def tagged_hash_bip_dkg(tag: str, msg: bytes) -> bytes:

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import NamedTuple, NoReturn
 
-from secp256k1lab.ecdh import ecdh_libsecp256k1
-from secp256k1lab.keys import pubkey_gen_plain
-from secp256k1lab.secp256k1 import GE, Scalar
+from ed25519lab.ecdh import ecdh_ed25519
+from ed25519lab.ed25519 import GE, Scalar
+from ed25519lab.keys import pubkey_gen
 
 from . import simplpedpop
 from .util import (
@@ -21,25 +21,9 @@ from .util import (
 ###
 
 
-def ecdh(
-    seckey: bytes, my_pubkey: bytes, their_pubkey: bytes, context: bytes, sending: bool
-) -> Scalar:
-    data = ecdh_libsecp256k1(seckey, their_pubkey)
-    if sending:
-        data += my_pubkey + their_pubkey
-    else:
-        data += their_pubkey + my_pubkey
-    assert len(data) == 32 + 2 * 33
-    data += context
-    ret: Scalar = Scalar.from_bytes_wrapping(
-        tagged_hash_bip_dkg("encpedpop ecdh", data)
-    )
-    return ret
-
-
 def self_pad(symkey: bytes, nonce: bytes, context: bytes) -> Scalar:
     # Pad for symmetric encryption to ourselves
-    pad: Scalar = Scalar.from_bytes_wrapping(
+    pad: Scalar = Scalar.from_bytes_wide(
         tagged_hash_bip_dkg("encaps_multi self_pad", symkey + nonce + context)
     )
     return pad
@@ -67,10 +51,9 @@ def encaps_multi(
             # pad to save the ECDH computation.
             pad = self_pad(symkey=deckey, nonce=pubnonce, context=context_)
         else:
-            pad = ecdh(
+            pad = ecdh_ed25519(
                 seckey=secnonce,
-                my_pubkey=pubnonce,
-                their_pubkey=enckey,
+                pubkey=enckey,
                 context=context_,
                 sending=True,
             )
@@ -108,10 +91,9 @@ def decaps_multi(
             pad = self_pad(symkey=deckey, nonce=pubnonce, context=context_)
         else:
             try:
-                pad = ecdh(
+                pad = ecdh_ed25519(
                     seckey=deckey,
-                    my_pubkey=enckey,
-                    their_pubkey=pubnonce,
+                    pubkey=pubnonce,
                     context=context_,
                     sending=False,
                 )
@@ -152,7 +134,7 @@ class ParticipantMsg(NamedTuple):
 
     @staticmethod
     def len_bytes(*, t: int, n: int) -> int:
-        return simplpedpop.ParticipantMsg.len_bytes(t=t) + 33 + 32 * n
+        return simplpedpop.ParticipantMsg.len_bytes(t=t) + 32 + 32 * n
 
     @staticmethod
     def from_bytes(b: bytes, *, t: int, n: int) -> ParticipantMsg:
@@ -166,8 +148,8 @@ class ParticipantMsg(NamedTuple):
             b[simpl_pmsg_len:],
         )  # MsgParseError if invalid
 
-        # Read pubnonce (33 bytes)
-        pubnonce, rest = rest[:33], rest[33:]
+        # Read pubnonce (32 bytes)
+        pubnonce, rest = rest[:32], rest[32:]
 
         # Read enc_secshares (32*n bytes)
         try:
@@ -194,7 +176,7 @@ class CoordinatorMsg(NamedTuple):
 
     @staticmethod
     def len_bytes(*, t: int, n: int) -> int:
-        return simplpedpop.CoordinatorMsg.len_bytes(t=t, n=n) + 33 * n
+        return simplpedpop.CoordinatorMsg.len_bytes(t=t, n=n) + 32 * n
 
     @staticmethod
     def from_bytes(b: bytes, *, t: int, n: int) -> CoordinatorMsg:
@@ -208,8 +190,8 @@ class CoordinatorMsg(NamedTuple):
             b[simpl_cmsg_len:],
         )  # MsgParseError if invalid
 
-        # Read pubnonces (33*n bytes)
-        pubnonces = [rest[i : i + 33] for i in range(0, 33 * n, 33)]
+        # Read pubnonces (32*n bytes)
+        pubnonces = [rest[i : i + 32] for i in range(0, 32 * n, 32)]
 
         return CoordinatorMsg(simpl_cmsg, pubnonces)
 
@@ -242,11 +224,11 @@ class CoordinatorInvestigationMsg(NamedTuple):
         except ValueError as e:
             raise MsgParseError("invalid encrypted partial secshare") from e
 
-        # Read partial_pubshares (33*n bytes)
+        # Read partial_pubshares (32*n bytes)
         try:
             partial_pubshares = [
-                GE.from_bytes_compressed_with_infinity(rest[i : i + 33])
-                for i in range(0, 33 * n, 33)
+                GE.from_bytes_with_identity(rest[i : i + 32])
+                for i in range(0, 32 * n, 32)
             ]
         except ValueError as e:
             raise MsgParseError("invalid partial pubshare") from e
@@ -257,9 +239,7 @@ class CoordinatorInvestigationMsg(NamedTuple):
         secshares_bytes = b"".join(
             share.to_bytes() for share in self.enc_partial_secshares
         )
-        pubshares_bytes = b"".join(
-            P.to_bytes_compressed_with_infinity() for P in self.partial_pubshares
-        )
+        pubshares_bytes = b"".join(P.to_bytes() for P in self.partial_pubshares)
         return secshares_bytes + pubshares_bytes
 
 
@@ -308,10 +288,14 @@ def participant_step1(
     # same encryption pads. The foolproof way to achieve this is to simply
     # derive the nonce from simpl_seed.
     enc_context = serialize_enc_context(t, enckeys)
-    simpl_seed = tagged_hash_bip_dkg("encpedpop seed", seed + random + enc_context)
-    simpl_aux_rand = tagged_hash_bip_dkg("simplpedpop aux", simpl_seed)
-    secnonce = tagged_hash_bip_dkg("encpedpop secnonce", simpl_seed)
-    pubnonce = pubkey_gen_plain(secnonce)
+    # tagged_hash is SHA-512 (64 bytes); the seed and aux are 32-byte raw-entropy
+    # values, so we truncate, while the secnonce is a scalar and is wide-reduced.
+    simpl_seed = tagged_hash_bip_dkg("encpedpop seed", seed + random + enc_context)[:32]
+    simpl_aux_rand = tagged_hash_bip_dkg("simplpedpop aux", simpl_seed)[:32]
+    secnonce = Scalar.from_bytes_wide(
+        tagged_hash_bip_dkg("encpedpop secnonce", simpl_seed)
+    ).to_bytes()
+    pubnonce = pubkey_gen(secnonce)
 
     simpl_state, simpl_pmsg, shares = simplpedpop.participant_step1(
         simpl_seed, t, n, participant_id, simpl_aux_rand

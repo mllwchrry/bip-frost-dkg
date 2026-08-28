@@ -27,6 +27,14 @@ from chilldkg_ref.chilldkg import (
     participant_step2,
 )
 
+from ed25519lab.ed25519 import Scalar
+
+
+def random_seckey() -> bytes:
+    # A uniform valid Ed25519 scalar (below L), wide-reduced from 64 random bytes.
+    return Scalar.from_bytes_wide(random_bytes(64)).to_bytes()
+
+
 #
 # Network mocks to simulate full DKG sessions
 #
@@ -255,7 +263,7 @@ def main():
     print()
 
     # Generate common inputs for all participants and coordinator
-    hostseckeys = [random_bytes(32) for _ in range(n)]
+    hostseckeys = [random_seckey() for _ in range(n)]
     hostpubkeys = []
     for i in range(n):
         hostpubkeys += [hostpubkey_gen(hostseckeys[i])]

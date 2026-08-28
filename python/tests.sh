@@ -28,7 +28,7 @@ run_keep() {
 run_keep ruff check --quiet
 run_keep ruff format --diff --quiet
 run_keep mypy --no-error-summary .
-run_keep mypy --no-error-summary --strict --untyped-calls-exclude=secp256k1lab -p chilldkg_ref --follow-imports=silent
+run_keep mypy --no-error-summary --strict --untyped-calls-exclude=ed25519lab -p chilldkg_ref --follow-imports=silent
 
 run_keep python3 gen_vectors.py
 run_keep python3 tests.py

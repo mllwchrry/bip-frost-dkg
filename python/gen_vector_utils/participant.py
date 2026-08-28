@@ -1,12 +1,15 @@
 import copy
 
-from secp256k1lab.secp256k1 import GE, Scalar
-from secp256k1lab.util import bytes_from_int
+from ed25519lab.ed25519 import B, GE, Scalar
+from ed25519lab.util import bytes_from_int
 
 from chilldkg_ref import chilldkg
 
 from .fixtures import AUX_RAND_HEX, HOSTSECKEYS_HEX, RANDOMS_HEX, THRESHOLD_CONFIGS
 from .util import (
+    IDENTITY_POINT,
+    NONCANONICAL_Y,
+    NO_VALID_X,
     assign_tc_ids,
     bytes_to_hex,
     dkg_output_asdict,
@@ -16,8 +19,11 @@ from .util import (
     params_asdict,
 )
 
-# Arbitrary EC point x-coordinate used as a hardcoded wrong value in test vectors.
-ARBITRARY_POINT_X = 0x60C301C1EEC41AD16BF53F55F97B7B6EB842D9E2B8139712BA54695FF7116073
+# Arbitrary (valid, prime-order) EC point used as a hardcoded wrong value in
+# test vectors, derived as a fixed scalar times B.
+ARBITRARY_POINT = (
+    Scalar(0x60C301C1EEC41AD16BF53F55F97B7B6EB842D9E2B8139712BA54695FF7116073) * B
+)
 
 PARTICIPANT_STEP1_DESCRIPTION = [
     "Test vectors for participant_step1(hostseckey, params, random).",
@@ -132,8 +138,8 @@ def generate_participant_step1_group(t, n):
             "comment": "threshold exceeds the number of participants",
         }
     )
-    # --- Error test case: hostpubkeys list contains a value with an invalid prefix ---
-    invalid_hostpubkey = b"\xeb" * 33  # invalid prefix
+    # --- Error test case: hostpubkeys list contains a value with a non-canonical y coordinate (y >= p) ---
+    invalid_hostpubkey = NONCANONICAL_Y
     with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
     invalid_params = chilldkg.SessionParams(with_invalid, t)
     error = expect_exception(
@@ -146,11 +152,11 @@ def generate_participant_step1_group(t, n):
             "params": params_asdict(invalid_params),
             "random": bytes_to_hex(random),
             "expectedError": error,
-            "comment": "hostpubkeys list contains an invalid value with invalid prefix",
+            "comment": "hostpubkeys list contains a value with a non-canonical y coordinate (y >= p)",
         }
     )
-    # --- Error test case: hostpubkeys list contains a value with an off-curve x-coordinate ---
-    invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"  # invalid x-coordinate
+    # --- Error test case: hostpubkeys list contains a value with an off-curve y coordinate ---
+    invalid_hostpubkey = NO_VALID_X
     with_invalid = hostpubkeys[:-1] + [invalid_hostpubkey]
     invalid_params = chilldkg.SessionParams(with_invalid, t)
     error = expect_exception(
@@ -163,13 +169,13 @@ def generate_participant_step1_group(t, n):
             "params": params_asdict(invalid_params),
             "random": bytes_to_hex(random),
             "expectedError": error,
-            "comment": "hostpubkeys list contains an invalid value with invalid x-coordinate",
+            "comment": "hostpubkeys list contains an invalid value with an off-curve y coordinate",
         }
     )
-    # --- Error test case: hostpubkeys list contains an infinite value ---
-    infinity_hostpubkey = b"\x00" * 33  # infinity
-    with_infinity = hostpubkeys[:-1] + [infinity_hostpubkey]
-    invalid_params = chilldkg.SessionParams(with_infinity, t)
+    # --- Error test case: hostpubkeys list contains the identity ---
+    identity_hostpubkey = IDENTITY_POINT
+    with_identity = hostpubkeys[:-1] + [identity_hostpubkey]
+    invalid_params = chilldkg.SessionParams(with_identity, t)
     error = expect_exception(
         lambda: chilldkg.participant_step1(hostseckeys[0], invalid_params, random),
         chilldkg.InvalidHostPubkeyError,
@@ -180,7 +186,7 @@ def generate_participant_step1_group(t, n):
             "params": params_asdict(invalid_params),
             "random": bytes_to_hex(random),
             "expectedError": error,
-            "comment": "hostpubkeys list contains an infinity point",
+            "comment": "hostpubkeys list contains the identity",
         }
     )
     # --- Error test case: hostpubkeys list contains duplicate values ---
@@ -349,9 +355,9 @@ def generate_participant_step2_group(t, n):
             "comment": "hostseckey does not match the one used in participant_step1",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an invalid prefix at index 0 (own pubnonce) ---
+    # --- Error test case: pubnonces list in cmsg1 has a non-canonical y coordinate at index 0 (own pubnonce) ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = b"\xeb" * 33  # invalid prefix
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = NONCANONICAL_Y
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -363,12 +369,12 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has an invalid prefix at index 0 (own pubnonce)",
+            "comment": "invalid cmsg1: pubnonces list has a non-canonical y coordinate at index 0 (own pubnonce)",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an invalid prefix at index 1 ---
+    # --- Error test case: pubnonces list in cmsg1 has a non-canonical y coordinate at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = b"\xeb" * 33  # invalid prefix
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = NONCANONICAL_Y
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_faulty_exception(
         lambda: chilldkg.participant_step2(
@@ -381,14 +387,12 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has an invalid prefix at index 1",
+            "comment": "invalid cmsg1: pubnonces list has a non-canonical y coordinate at index 1",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an off-curve x-coordinate at index 0 (own pubnonce) ---
+    # --- Error test case: pubnonces list in cmsg1 has an off-curve y coordinate at index 0 (own pubnonce) ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = (
-        b"\x03" + 31 * b"\x00" + b"\x05"
-    )  # Invalid x-coordinate
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = NO_VALID_X
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -400,14 +404,12 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has an off-curve x-coordinate at index 0 (own pubnonce)",
+            "comment": "invalid cmsg1: pubnonces list has an off-curve y coordinate at index 0 (own pubnonce)",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an off-curve x-coordinate at index 1 ---
+    # --- Error test case: pubnonces list in cmsg1 has an off-curve y coordinate at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = (
-        b"\x03" + 31 * b"\x00" + b"\x05"
-    )  # Invalid x-coordinate
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = NO_VALID_X
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_faulty_exception(
         lambda: chilldkg.participant_step2(
@@ -420,14 +422,12 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has an off-curve x-coordinate at index 1",
+            "comment": "invalid cmsg1: pubnonces list has an off-curve y coordinate at index 1",
         }
     )
     # --- Error test case: pubnonces list in cmsg1 has an arbitrary value at index 0 (own pubnonce) ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = GE.lift_x(
-        ARBITRARY_POINT_X
-    ).to_bytes_compressed()
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = ARBITRARY_POINT.to_bytes()
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -444,9 +444,7 @@ def generate_participant_step2_group(t, n):
     )
     # --- Error test case: pubnonces list in cmsg1 has an arbitrary value at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = GE.lift_x(
-        ARBITRARY_POINT_X
-    ).to_bytes_compressed()
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = ARBITRARY_POINT.to_bytes()
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -461,9 +459,9 @@ def generate_participant_step2_group(t, n):
             "comment": "invalid cmsg1: pubnonces list has an arbitrary value at index 1",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an infinite value at index 0 (own pubnonce) ---
+    # --- Error test case: pubnonces list in cmsg1 has the identity at index 0 (own pubnonce) ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = b"\x00" * 33  # infinity
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[0] = IDENTITY_POINT
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -475,12 +473,12 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has the infinity point at index 0 (own pubnonce)",
+            "comment": "invalid cmsg1: pubnonces list has the identity at index 0 (own pubnonce)",
         }
     )
-    # --- Error test case: pubnonces list in cmsg1 has an infinite value at index 1 ---
+    # --- Error test case: pubnonces list in cmsg1 has the identity at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = b"\x00" * 33  # infinity
+    invalid_cmsg1_parsed.enc_cmsg.pubnonces[1] = IDENTITY_POINT
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_faulty_exception(
         lambda: chilldkg.participant_step2(
@@ -493,7 +491,7 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: pubnonces list has the infinity point at index 1",
+            "comment": "invalid cmsg1: pubnonces list has the identity at index 1",
         }
     )
     # --- Error test case: pubnonces list in cmsg1 has duplicate values ---
@@ -532,9 +530,7 @@ def generate_participant_step2_group(t, n):
     )
     # --- Error test case: coms_to_secrets list in cmsg1 has an arbitrary value at index 0 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[0] = GE.lift_x(
-        ARBITRARY_POINT_X
-    )
+    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[0] = ARBITRARY_POINT
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_exception(
         lambda: chilldkg.participant_step2(
@@ -549,9 +545,9 @@ def generate_participant_step2_group(t, n):
             "comment": "invalid cmsg1: coms_to_secrets list has an arbitrary value at index 0",
         }
     )
-    # --- Error test case: coms_to_secrets list in cmsg1 has infinity at index 1 ---
+    # --- Error test case: coms_to_secrets list in cmsg1 has the identity at index 1 ---
     invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[1] = GE()  # infinity
+    invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.coms_to_secrets[1] = GE()
     invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
     error = expect_faulty_exception(
         lambda: chilldkg.participant_step2(
@@ -564,7 +560,7 @@ def generate_participant_step2_group(t, n):
         {
             "cmsg1": bytes_to_hex(invalid_cmsg1),
             "expectedError": error,
-            "comment": "invalid cmsg1: coms_to_secrets list has infinity at index 1",
+            "comment": "invalid cmsg1: coms_to_secrets list has the identity at index 1",
         }
     )
     # --- Error test case: pop list in cmsg1 has an invalid value at index 1 ---
@@ -591,7 +587,7 @@ def generate_participant_step2_group(t, n):
         # --- Error test case: sum_coms_to_nonconst_terms has an arbitrary value at index 0 ---
         invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
         invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
-            GE.lift_x(ARBITRARY_POINT_X)
+            ARBITRARY_POINT
         )
         invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
         error = expect_exception(
@@ -607,11 +603,9 @@ def generate_participant_step2_group(t, n):
                 "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has an arbitrary value at index 0",
             }
         )
-        # --- Error test case: sum_coms_to_nonconst_terms has an infinite value at index 0 ---
+        # --- Error test case: sum_coms_to_nonconst_terms has the identity at index 0 ---
         invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
-        invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
-            GE()  # Infinity
-        )
+        invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg.sum_coms_to_nonconst_terms[0] = GE()
         invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
         error = expect_exception(
             lambda: chilldkg.participant_step2(
@@ -623,7 +617,7 @@ def generate_participant_step2_group(t, n):
             {
                 "cmsg1": bytes_to_hex(invalid_cmsg1),
                 "expectedError": error,
-                "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has the infinity point at index 0",
+                "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has the identity at index 0",
             }
         )
     # --- Error test case: Participant 1 sent an invalid secshare for participant 0 ---
@@ -947,9 +941,7 @@ def generate_participant_investigate_group(t, n):
             cinv_msgs[0], n=len(params.hostpubkeys)
         )
         invalid_cinv_msg0_parsed = copy.deepcopy(cinv_msg_parsed)
-        invalid_cinv_msg0_parsed.enc_cinv.partial_pubshares[1] = GE.lift_x(
-            ARBITRARY_POINT_X
-        )
+        invalid_cinv_msg0_parsed.enc_cinv.partial_pubshares[1] = ARBITRARY_POINT
         invalid_cinv_msg0 = invalid_cinv_msg0_parsed.to_bytes()
         error = expect_exception(
             lambda e=e: chilldkg.participant_investigate(e, invalid_cinv_msg0),

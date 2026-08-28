@@ -16,24 +16,26 @@ from chilldkg_ref.util import (
     tagged_hash_bip_dkg,
 )
 from chilldkg_ref.vss import VSS, Polynomial, VSSCommitment
-from example import simulate_chilldkg_full as simulate_chilldkg_full_example
+from example import (
+    random_seckey,
+    simulate_chilldkg_full as simulate_chilldkg_full_example,
+)
 from gen_vector_utils.util import (
+    NO_VALID_X,
     assert_raises,
     dkg_output_asdict,
     params_asdict,
     params_from_dict,
 )
 
-# Import from secp256k1lab after the chilldkg_ref imports because the latter
-# modifies sys.path to make sure the vendored copy of secp256k1lab is found.
-#
-# isort: split
-from secp256k1lab.keys import pubkey_gen_plain
-from secp256k1lab.secp256k1 import GE, G, Scalar
+# Import from ed25519lab after the chilldkg_ref imports because the latter
+# modifies sys.path to make sure the vendored copy of ed25519lab is found.
+from ed25519lab.ed25519 import B, GE, Scalar
+from ed25519lab.keys import pubkey_gen
 
 
 def test_chilldkg_params_validate():
-    hostseckeys = [random_bytes(32) for _ in range(3)]
+    hostseckeys = [random_seckey() for _ in range(3)]
     hostpubkeys = [chilldkg.hostpubkey_gen(hostseckey) for hostseckey in hostseckeys]
 
     with_duplicate = [hostpubkeys[0], hostpubkeys[1], hostpubkeys[2], hostpubkeys[1]]
@@ -45,7 +47,7 @@ def test_chilldkg_params_validate():
     else:
         assert False, "Expected exception"
 
-    invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"  # Invalid x-coordinate
+    invalid_hostpubkey = NO_VALID_X  # off-curve y coordinate
     params_with_invalid = chilldkg.SessionParams(
         [hostpubkeys[1], invalid_hostpubkey, hostpubkeys[2]], 1
     )
@@ -136,8 +138,10 @@ def simulate_simplpedpop(
 
 
 def encpedpop_keys(seed: bytes) -> tuple[bytes, bytes]:
-    deckey = tagged_hash_bip_dkg("encpedpop deckey", seed)
-    enckey = pubkey_gen_plain(deckey)
+    deckey = Scalar.from_bytes_wide(
+        tagged_hash_bip_dkg("encpedpop deckey", seed)
+    ).to_bytes()
+    enckey = pubkey_gen(deckey)
     return deckey, enckey
 
 
@@ -337,16 +341,16 @@ def test_correctness_dkg_output(t, n, dkg_outputs: list[simplpedpop.DKGOutput]):
     for i in range(1, n + 1):
         s = secshares_scalar[i]
         assert s is not None
-        assert s * G == GE.from_bytes_compressed(pubshares[0][i - 1])
+        assert s * B == GE.from_bytes(pubshares[0][i - 1])
 
     # Check that all combinations of t participants can recover the threshold pubkey
     for tsubset in combinations(range(1, n + 1), t):
         recovered = recover_secret(tsubset, [secshares_scalar[i] for i in tsubset])
-        assert recovered * G == GE.from_bytes_compressed(thresh_pk)
+        assert recovered * B == GE.from_bytes(thresh_pk)
 
 
 def test_correctness(t, n, simulate_dkg, recovery=False, investigation=False):
-    seeds = [None] + [random_bytes(32) for _ in range(n)]
+    seeds = [None] + [random_seckey() for _ in range(n)]
 
     rets = simulate_dkg(seeds[1:], t, investigation=investigation)
     if investigation:
@@ -713,7 +717,7 @@ def test_recover_vectors():
 
 def test_recovery_acknowledgment():
     t, n = 2, 3
-    hostseckeys = [random_bytes(32) for _ in range(n)]
+    hostseckeys = [random_seckey() for _ in range(n)]
     hostpubkeys = [chilldkg.hostpubkey_gen(hostseckey) for hostseckey in hostseckeys]
     params = chilldkg.SessionParams(hostpubkeys, t)
 
@@ -741,7 +745,7 @@ def test_recovery_acknowledgment():
         assert False, "Expected exception"
 
     # Invalid hostpubkey in params
-    invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"
+    invalid_hostpubkey = NO_VALID_X
     invalid_params = chilldkg.SessionParams([hostpubkeys[0], invalid_hostpubkey], t)
     try:
         chilldkg.participant_recovery_ack_sign(

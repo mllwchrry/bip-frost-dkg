@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from secp256k1lab.secp256k1 import GE, G, Scalar
+from ed25519lab.ed25519 import GE, B, Scalar
 
 from .util import tagged_hash_bip_dkg
 
@@ -30,22 +30,19 @@ class Polynomial:
 
 
 class VSSCommitment:
-    # Infinity GEs are allowed in VSSCommitment to avoid that a participant can
+    # Identity GEs are allowed in VSSCommitment to avoid that a participant can
     # force the sum of valid commitments to be invalid.
     ges: list[GE]
 
     @staticmethod
     def len_bytes(*, t: int) -> int:
-        return 33 * t
+        return 32 * t
 
     @staticmethod
     def from_bytes(b: bytes, *, t: int) -> VSSCommitment:
         if len(b) != VSSCommitment.len_bytes(t=t):
             raise ValueError
-        ges = [
-            GE.from_bytes_compressed_with_infinity(b[i : i + 33])
-            for i in range(0, 33 * t, 33)
-        ]
+        ges = [GE.from_bytes_with_identity(b[i : i + 32]) for i in range(0, 32 * t, 32)]
         return VSSCommitment(ges)
 
     def __init__(self, ges: list[GE]) -> None:
@@ -53,7 +50,7 @@ class VSSCommitment:
 
     def to_bytes(self) -> bytes:
         # Return commitments to the coefficients of f.
-        return b"".join([ge.to_bytes_compressed_with_infinity() for ge in self.ges])
+        return b"".join([ge.to_bytes() for ge in self.ges])
 
     def t(self) -> int:
         return len(self.ges)
@@ -67,7 +64,7 @@ class VSSCommitment:
     @staticmethod
     def verify_secshare(secshare: Scalar, pubshare: GE) -> bool:
         # The caller needs to provide the correct pubshare(i)
-        actual = secshare * G
+        actual = secshare * B
         valid: bool = actual == pubshare
         return valid
 
@@ -91,7 +88,7 @@ class VSS:
     @staticmethod
     def generate(seed: bytes, t: int) -> VSS:
         coeffs = [
-            Scalar.from_bytes_checked(
+            Scalar.from_bytes_wide(
                 tagged_hash_bip_dkg("vss coeffs", seed + i.to_bytes(4, byteorder="big"))
             )
             for i in range(t)
@@ -116,7 +113,7 @@ class VSS:
         return [self.secshare_for(i) for i in range(n)]
 
     def commit(self) -> VSSCommitment:
-        return VSSCommitment([c * G for c in self.f.coeffs])
+        return VSSCommitment([c * B for c in self.f.coeffs])
 
     def secret(self) -> Scalar:
         # Return the secret to be shared.

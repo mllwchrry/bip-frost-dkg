@@ -8,6 +8,17 @@ from chilldkg_ref import chilldkg, encpedpop
 
 ErrorInfo: TypeAlias = "dict[str, int | str | ErrorInfo]"
 
+# Adversarial 32-byte Ed25519 point encodings for test vectors.
+# These four are refused by both GE.from_bytes and its _with_identity variant:
+NONCANONICAL_Y = b"\xff" * 32  # y >= p (non-canonical y coordinate)
+NO_VALID_X = (2).to_bytes(32, "little")  # canonical y, no valid x (off-curve)
+SMALL_ORDER_POINT = bytes(32)  # y == 0: an order-4 torsion point
+NONCANONICAL_IDENTITY = bytes([1]) + bytes(30) + bytes([0x80])  # x == 0, sign bit set
+# The canonical neutral element: refused by the strict from_bytes (used for
+# individual keys/nonces, which can never be it) but ACCEPTED by _with_identity (used for
+# aggregate/summed commitments, which may legitimately cancel to it).
+IDENTITY_POINT = bytes([1]) + bytes(31)  # (0, 1), the neutral element
+
 
 def bytes_to_hex(data: bytes) -> str:
     return data.hex().upper()

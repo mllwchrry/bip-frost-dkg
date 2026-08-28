@@ -17,14 +17,13 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple, NewType, NoReturn
 
-from secp256k1lab.bip340 import schnorr_sign, schnorr_verify
-from secp256k1lab.keys import pubkey_gen_plain
-from secp256k1lab.secp256k1 import GE, Scalar
-from secp256k1lab.util import bytes_from_int
+from ed25519lab.ed25519 import GE, Scalar
+from ed25519lab.internal_sig import internal_sign, internal_verify
+from ed25519lab.keys import pubkey_gen
+from ed25519lab.util import bytes_from_int
 
 from . import encpedpop
 from .util import (
-    BIP_TAG,
     FaultyCoordinatorError,
     FaultyParticipantError,
     FaultyParticipantOrCoordinatorError,
@@ -80,18 +79,17 @@ __all__ = [
 
 
 def certeq_message(x: bytes, participant_id: int) -> bytes:
-    # Domain separation as described in BIP 340
-    prefix = (BIP_TAG + "certeq message").encode()
-    prefix = prefix + b"\x00" * (33 - len(prefix))
-    assert len(prefix) == 33
-    return prefix + participant_id.to_bytes(4, "big") + x
+    # Domain separation via the tagged hash: internal_sign has a fixed challenge
+    # tag, so the "certeq message" tag distinguishes a CertEq signature from the
+    # other internal signatures (PoP, recovery acknowledgment) in this protocol.
+    return tagged_hash_bip_dkg("certeq message", participant_id.to_bytes(4, "big") + x)
 
 
 def certeq_participant_step(
     hostseckey: bytes, participant_id: int, x: bytes, aux_rand: bytes
 ) -> bytes:
     msg = certeq_message(x, participant_id)
-    return schnorr_sign(msg, hostseckey, aux_rand=aux_rand)
+    return internal_sign(msg, hostseckey, aux=aux_rand)
 
 
 def certeq_cert_len(n: int) -> int:
@@ -104,12 +102,9 @@ def certeq_verify(hostpubkeys: list[bytes], x: bytes, cert: bytes) -> None:
         raise ValueError
     for i in range(n):
         msg = certeq_message(x, i)
-        valid = schnorr_verify(
+        valid = internal_verify(
             msg,
-            # Dropping the sign byte from hostpubkeys[i] is okay because msg
-            # commits on the full hostpubkeys[i]: it encodes all hostpubkeys
-            # together with the id i.
-            hostpubkeys[i][1:33],
+            hostpubkeys[i],
             cert[i * 64 : (i + 1) * 64],
         )
         if not valid:
@@ -133,18 +128,17 @@ class InvalidSignatureInCertificateError(ValueError):
 
 
 def recovery_ack_message(x: bytes, participant_id: int) -> bytes:
-    # Domain separation as described in BIP 340
-    prefix = (BIP_TAG + "recovery acknowledgment").encode()
-    prefix = prefix + b"\x00" * (33 - len(prefix))
-    assert len(prefix) == 33
-    return prefix + participant_id.to_bytes(4, "big") + x
+    # Domain separation via the tagged hash (see certeq_message).
+    return tagged_hash_bip_dkg(
+        "recovery acknowledgment", participant_id.to_bytes(4, "big") + x
+    )
 
 
 def recovery_ack_sign(
     hostseckey: bytes, participant_id: int, x: bytes, aux_rand: bytes
 ) -> bytes:
     msg = recovery_ack_message(x, participant_id)
-    return schnorr_sign(msg, hostseckey, aux_rand=aux_rand)
+    return internal_sign(msg, hostseckey, aux=aux_rand)
 
 
 ###
@@ -158,12 +152,12 @@ def hostpubkey_gen(hostseckey: bytes) -> bytes:
     The host public key is the long-term cryptographic identity of the
     participant.
 
-    This function interprets `hostseckey` as big-endian integer, and computes
-    the corresponding "plain" public key in compressed serialization (33 bytes,
-    starting with 0x02 or 0x03). This is the key generation procedure
-    traditionally used in Bitcoin, e.g., for ECDSA. In other words, this
-    function is equivalent to `IndividualPubkey` as defined in
-    [[BIP 327](bip-0327.mediawiki#key-generation-of-an-individual-signer)].
+    This function interprets `hostseckey` as a raw little-endian scalar and
+    computes the corresponding Ed25519 public key `[hostseckey]B` in the
+    32-byte RFC 8032 encoding. There is no clamping and no SHA-512 seed
+    expansion: host keys are raw scalars so that a single signing construction
+    (internal_sign) suffices for all of the protocol's internal signatures
+    (proofs of possession, CertEq, and recovery acknowledgments).
 
     Arguments:
         hostseckey: This participant's long-term secret key (32 bytes).
@@ -179,7 +173,7 @@ def hostpubkey_gen(hostseckey: bytes) -> bytes:
             coordinator (and any eavesdropper).
 
     Returns:
-        The host public key (33 bytes).
+        The host public key (32 bytes).
 
     Raises:
         HostSeckeyError: If the host secret key is invalid.
@@ -188,7 +182,7 @@ def hostpubkey_gen(hostseckey: bytes) -> bytes:
         raise ValueError
 
     try:
-        return pubkey_gen_plain(hostseckey)
+        return pubkey_gen(hostseckey)
     except ValueError:
         raise HostSeckeyError
 
@@ -250,7 +244,7 @@ def params_validate(params: SessionParams) -> None:
     # Check that all hostpubkeys are valid
     for i, hostpubkey in enumerate(hostpubkeys):
         try:
-            _ = GE.from_bytes_compressed(hostpubkey)
+            _ = GE.from_bytes(hostpubkey)
         except ValueError as e:
             raise InvalidHostPubkeyError(i) from e
 
@@ -278,7 +272,7 @@ def params_hash(params: SessionParams) -> bytes:
     obtained authentic public host keys.
 
     Returns:
-        bytes: The parameters hash, a 32-byte string.
+        bytes: The parameters hash, a 64-byte string.
 
     Raises:
         InvalidHostPubkeyError: If `hostpubkeys` contains an invalid public key.
@@ -294,7 +288,7 @@ def params_hash(params: SessionParams) -> bytes:
         "params_hash",
         t_bytes + b"".join(hostpubkeys),
     )
-    assert len(params_hash) == 32
+    assert len(params_hash) == 64
     return params_hash
 
 
@@ -326,7 +320,7 @@ class InvalidHostPubkeyError(SessionParamsError):
     """Raised if a host public key is invalid.
 
     This exception is raised when a host public key in the `SessionParams` tuple
-    is not a valid public key in compressed serialization. Assuming the host
+    is not a valid public key (RFC 8032 encoding). Assuming the host
     public keys in question has been transmitted correctly, this exception
     implies that the corresponding participant is faulty.
 
@@ -352,9 +346,9 @@ class DKGOutput(NamedTuple):
         secshare: Secret share of the participant (32 bytes, or `None` for
             coordinator).
         thresh_pk: Generated threshold public key representing the group
-            (33 bytes, in compressed serialization).
-        pubshares: Public shares of the participants (33 bytes each, in
-            compressed serialization).
+            (32 bytes, RFC 8032 encoding).
+        pubshares: Public shares of the participants (32 bytes each,
+            RFC 8032 encoding).
     """
 
     secshare: bytes | None
@@ -508,26 +502,26 @@ def deserialize_recovery_data(
         raise ValueError
     t, rest = int.from_bytes(rest[:4], byteorder="big"), rest[4:]
 
-    # Read sum_coms (33*t bytes)
-    if len(rest) < 33 * t:
+    # Read sum_coms (32*t bytes)
+    if len(rest) < 32 * t:
         raise ValueError
     sum_coms, rest = (
-        VSSCommitment.from_bytes(rest[: 33 * t], t=t),
-        rest[33 * t :],
+        VSSCommitment.from_bytes(rest[: 32 * t], t=t),
+        rest[32 * t :],
     )
 
     # Compute n
-    n, remainder = divmod(len(rest), (33 + 33 + 32 + 64))
+    n, remainder = divmod(len(rest), (32 + 32 + 32 + 64))
     if remainder != 0:
         raise ValueError
 
-    # Read hostpubkeys (33*n bytes)
-    assert len(rest) >= 33 * n
-    hostpubkeys, rest = [rest[i : i + 33] for i in range(0, 33 * n, 33)], rest[33 * n :]
+    # Read hostpubkeys (32*n bytes)
+    assert len(rest) >= 32 * n
+    hostpubkeys, rest = [rest[i : i + 32] for i in range(0, 32 * n, 32)], rest[32 * n :]
 
-    # Read pubnonces (33*n bytes)
-    assert len(rest) >= 33 * n
-    pubnonces, rest = [rest[i : i + 33] for i in range(0, 33 * n, 33)], rest[33 * n :]
+    # Read pubnonces (32*n bytes)
+    assert len(rest) >= 32 * n
+    pubnonces, rest = [rest[i : i + 32] for i in range(0, 32 * n, 32)], rest[32 * n :]
 
     # Read enc_secshares (32*n bytes)
     assert len(rest) >= 32 * n
@@ -577,7 +571,7 @@ def participant_step1(
             not** be reused (i.e., it must be passed only to one
             `participant_step2` call).
         bytes: The first message to be sent to the coordinator
-            (`33*t + 32*n + 97` bytes).
+            (`32*t + 32*n + 96` bytes).
 
     Raises:
         HostSeckeyError: If the host secret key is invalid, or if the key does
@@ -613,7 +607,7 @@ def participant_step1(
         seed=hostseckey,
         deckey=hostseckey,
         t=t,
-        # This requires the joint security of Schnorr signatures and ECDH.
+        # This requires the joint security of the internal signature scheme and ECDH.
         enckeys=hostpubkeys,
         participant_id=participant_id,
         random=random,
@@ -653,10 +647,10 @@ def participant_step2(
         state1: The participant's session state as output by
             `participant_step1`.
         cmsg1: The first message received from the coordinator
-            (`162*n + 33*(t-1)` bytes).
+            (`160*n + 32*(t-1)` bytes).
         aux_rand: Auxiliary randomness (32 bytes). FRESH 32-byte randomness
             is optimal, but 16 random bytes or a counter padded to 32 bytes
-            is acceptable (see BIP 340).
+            is acceptable (see internal_sign).
 
     Returns:
         ParticipantState2: The participant's session state after this step, to
@@ -801,7 +795,7 @@ def participant_investigate(
         error: `UnknownFaultyParticipantOrCoordinatorError` raised by
             `participant_step2`.
         cinv: Coordinator investigation message for this participant as output
-            by `coordinator_investigate` (`65*n` bytes).
+            by `coordinator_investigate` (`64*n` bytes).
 
     Raises:
         FaultyParticipantOrCoordinatorError: If another known participant or the
@@ -840,7 +834,7 @@ def coordinator_step1(
 
     Arguments:
         pmsgs1: List of first messages received from the participants
-                (`33*t + 32*n + 97` bytes each). The list's length must equal
+                (`32*t + 32*n + 96` bytes each). The list's length must equal
                 the total number of participants.
         params: Common session parameters.
 
@@ -850,7 +844,7 @@ def coordinator_step1(
             supposed to be reused (i.e., it is supposed to be passed only to one
             `coordinator_finalize` call).
         bytes: The first message to be sent to all participants
-            (`162*n + 33*(t-1)` bytes).
+            (`160*n + 32*(t-1)` bytes).
 
     Raises:
         InvalidHostPubkeyError: If `hostpubkeys` contains an invalid public key.
@@ -957,12 +951,12 @@ def coordinator_investigate(pmsgs: list[bytes], params: SessionParams) -> list[b
 
     Arguments:
         pmsgs: List of serialized first messages received from the participants
-               (`33*t + 32*n + 97` bytes each).
+               (`32*t + 32*n + 96` bytes each).
         params: Common session parameters.
 
     Returns:
         List[bytes]: A list of investigation messages, each intended for a
-            single participant (`65*n` bytes each).
+            single participant (`64*n` bytes each).
 
     Raises:
         FaultyParticipantError: If a participant is faulty. See the
@@ -1044,8 +1038,8 @@ def recover(
 
     dkg_output = DKGOutput(
         None if secshare is None else secshare.to_bytes(),
-        thresh_pk.to_bytes_compressed(),
-        [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        thresh_pk.to_bytes(),
+        [pubshare.to_bytes() for pubshare in pubshares],
     )
     return dkg_output, params
 
@@ -1136,7 +1130,7 @@ def participant_recovery_ack_sign(
         params: Common session parameters.
         aux_rand: Auxiliary randomness (32 bytes). FRESH 32-byte randomness
             is optimal, but 16 random bytes or a counter padded to 32 bytes
-            is acceptable (see BIP 340).
+            is acceptable (see internal_sign).
 
     Returns:
         bytes: Acknowledgment signature (64 bytes).
@@ -1227,12 +1221,9 @@ def participant_recovery_acks_verify(
     for i, sig in enumerate(ack_sigs):
         rmsg = RecoveryAckMsg.from_bytes(sig)
         msg = recovery_ack_message(recovery_data, i)
-        valid = schnorr_verify(
+        valid = internal_verify(
             msg,
-            # Dropping the sign byte from hostpubkeys[i] is okay because msg
-            # commits on the full hostpubkeys[i]: it encodes all hostpubkeys
-            # together with the id i.
-            hostpubkeys[i][1:33],
+            hostpubkeys[i],
             rmsg.sig,
         )
         if not valid:
