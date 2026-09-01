@@ -349,6 +349,12 @@ class GE:
         Multiplication by the generator takes the precomputed-table path; every
         other point takes plain double-and-add. See FastGEMul for what that does
         and, more importantly, does not speed up.
+
+        WARNING: an int operand is reduced mod L before the multiplication.
+        That is correct only for points in the prime-order subgroup. On a
+        torsion point it gives the wrong answer -- GE.ORDER * T is the identity
+        for an order-2 T, while [L]T is not. Use _mul_int for any computation
+        that must see the true order.
         """
         if isinstance(a, Scalar):
             k = int(a)
@@ -368,7 +374,7 @@ class GE:
         return self._x == a._x and self._y == a._y
 
     def __hash__(self) -> int:
-        return hash(self.to_bytes())
+        return hash(self.to_bytes_with_identity())
 
     @staticmethod
     def sum(*ps: GE) -> GE:
@@ -391,16 +397,31 @@ class GE:
 
     # -- encoding -----------------------------------------------------------
 
-    def to_bytes(self) -> bytes:
+    def to_bytes_with_identity(self) -> bytes:
         """Encode as 32 bytes: little-endian y, with the sign of x in bit 255.
 
-        The neutral element encodes as 0x01 followed by 31 zero bytes. There is
-        deliberately no to_bytes_with_identity variant: the neutral
-        element has a native encoding here and needs no sentinel.
+        Permissive: the identity encodes like any other point, as 0x01 followed
+        by 31 zero bytes -- there is no sentinel, and no counterpart to
+        secp256k1lab's to_bytes_compressed_with_infinity is needed for the
+        FORMAT. Use this only where the identity is a legitimate protocol value
+        (an aggregate nonce whose contributions cancel, a sum of VSS
+        commitments); everywhere else use to_bytes, which refuses it.
         """
         b = bytearray(int(self._y).to_bytes(32, "little"))
         b[31] |= (int(self._x) & 1) << 7
         return bytes(b)
+
+    def to_bytes(self) -> bytes:
+        """Encode as 32 bytes, REFUSING the identity.
+
+        The mirror of from_bytes. Encoding is the last place an identity can be
+        caught at the producer, where blame is local, instead of at some remote
+        decoder or -- worse -- not at all, in a session that succeeds with a
+        degenerate output.
+        """
+        if self.is_identity:
+            raise ValueError("point is the identity")
+        return self.to_bytes_with_identity()
 
     @staticmethod
     def from_bytes_with_identity(b: bytes) -> GE:
@@ -461,7 +482,7 @@ class GE:
         return p
 
     # -- subgroup -----------------------------------------------------------
-
+    
     def in_prime_order_subgroup(self) -> bool:
         """Whether [L]P is the neutral element.
 
@@ -469,11 +490,16 @@ class GE:
         received point, not per session. A production port can substitute
         Pornin's point-halving check (eprint 2022/1164); the predicate is
         identical.
+
+        _mul_int, not `self.ORDER * self`, ON PURPOSE: the operator reduces an
+        int operand mod L, so `self.ORDER * self` is always the identity and
+        this predicate would become a tautology. Pinned by
+        ScalarMulReductionTests.
         """
         return _mul_int(self, self.ORDER).is_identity
 
     def __str__(self) -> str:
-        return self.to_bytes().hex()
+        return self.to_bytes_with_identity().hex()
 
     def __repr__(self) -> str:
         if self.is_identity:
@@ -488,6 +514,10 @@ def _recover_x(y: FE, sign: int) -> FE | None:
     encoding being non-canonical, not about the point, so the caller applies it.
     """
     v = 1 + _D * y**2
+    # Unreachable: v == 0 needs y**2 == -1/d, and -1/d is a non-square mod p --
+    # the same property of d that makes the addition law complete. Kept because
+    # without it a zero denominator would surface as a confusing inversion
+    # error instead of None. Consequently this line is not coverable.
     if v == 0:
         return None
     x = ((y**2 - 1) / v).sqrt()

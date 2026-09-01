@@ -239,7 +239,9 @@ class CoordinatorInvestigationMsg(NamedTuple):
         secshares_bytes = b"".join(
             share.to_bytes() for share in self.enc_partial_secshares
         )
-        pubshares_bytes = b"".join(P.to_bytes() for P in self.partial_pubshares)
+        pubshares_bytes = b"".join(
+            P.to_bytes_with_identity() for P in self.partial_pubshares
+        )
         return secshares_bytes + pubshares_bytes
 
 

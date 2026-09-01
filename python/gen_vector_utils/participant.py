@@ -3,7 +3,7 @@ import copy
 from ed25519lab.ed25519 import B, GE, Scalar
 from ed25519lab.util import bytes_from_int
 
-from chilldkg_ref import chilldkg
+from chilldkg_ref import chilldkg, simplpedpop
 
 from .fixtures import AUX_RAND_HEX, HOSTSECKEYS_HEX, RANDOMS_HEX, THRESHOLD_CONFIGS
 from .util import (
@@ -901,6 +901,44 @@ def generate_participant_step2_group(t, n):
                 "cmsg1": bytes_to_hex(invalid_cmsg1),
                 "expectedError": error,
                 "comment": "invalid cmsg1: sum_coms_to_nonconst_terms has a non-canonical identity encoding at index 0",
+            }
+        )
+    if t > 2:
+        # --- Error test case: an aggregate public share is the identity ---
+        # Craft sum_coms_to_nonconst_terms so the aggregate polynomial evaluates to the
+        # identity at index m != 0, while leaving participant 0's own share (and hence
+        # verify_secshare) unchanged. Building the DKGOutput then encodes an identity
+        # public share, which the strict to_bytes refuses, catching the degenerate
+        # output at the producer rather than exporting a broken key.
+        invalid_cmsg1_parsed = copy.deepcopy(cmsg1_parsed)
+        simpl_cmsg = invalid_cmsg1_parsed.enc_cmsg.simpl_cmsg
+        sum_coms = simplpedpop.assemble_sum_coms(
+            simpl_cmsg.coms_to_secrets, simpl_cmsg.sum_coms_to_nonconst_terms
+        )
+        m = 1
+        # delta added to the linear term and subtracted from the quadratic term cancels
+        # pubshare(m) to the identity while fixing pubshare(0): both are scaled by (m+1)^j,
+        # so the change vanishes at index 0 and sums to -pubshare(m) at index m.
+        inv = Scalar(pow((m + 1) * m, Scalar.SIZE - 2, Scalar.SIZE))
+        delta = inv * sum_coms.pubshare(m)
+        simpl_cmsg.sum_coms_to_nonconst_terms[0] = (
+            simpl_cmsg.sum_coms_to_nonconst_terms[0] + delta
+        )
+        simpl_cmsg.sum_coms_to_nonconst_terms[1] = (
+            simpl_cmsg.sum_coms_to_nonconst_terms[1] - delta
+        )
+        invalid_cmsg1 = invalid_cmsg1_parsed.to_bytes()
+        error = expect_exception(
+            lambda: chilldkg.participant_step2(
+                hostseckeys[0], pstates1[0], invalid_cmsg1, aux_rand
+            ),
+            ValueError,
+        )
+        error_cases.append(
+            {
+                "cmsg1": bytes_to_hex(invalid_cmsg1),
+                "expectedError": error,
+                "comment": "invalid cmsg1: an aggregate public share is the identity",
             }
         )
     # --- Error test case: Participant 1 sent an invalid secshare for participant 0 ---

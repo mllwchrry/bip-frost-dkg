@@ -9,7 +9,7 @@ spec requires against dalek verify_strict and the ed25519-speccheck vectors.
 import unittest
 from random import randint, seed
 
-from ed25519lab.ed25519 import FE, GE, B, Scalar, _recover_x
+from ed25519lab.ed25519 import FE, GE, B, Scalar, _mul_int, _recover_x
 
 P = FE.SIZE
 L = Scalar.SIZE
@@ -132,7 +132,7 @@ class TwoDecodersTests(unittest.TestCase):
         cases += [b"", b"\x01" * 31, b"\x01" * 33]
         t = unchecked_decode(SMALL_ORDER["order 8 (a)"])
         cases += [(Scalar(randint(1, L - 1)) * B + t).to_bytes() for _ in range(5)]
-        neutral = GE().to_bytes()
+        neutral = GE().to_bytes_with_identity()
 
         differed = []
         for enc in cases:
@@ -264,6 +264,27 @@ class CofactorTests(unittest.TestCase):
         t = unchecked_decode(SMALL_ORDER["order 8 (a)"])
         with self.assertRaises(ValueError):
             GE.from_bytes((self.R + t).to_bytes())
+
+class ScalarMulReductionTests(unittest.TestCase):
+    """`int * GE` reduces the scalar mod L, which is only correct inside the
+    prime-order subgroup. in_prime_order_subgroup therefore uses _mul_int, and
+    must keep using it: rewriting it as `(self.ORDER * self).is_identity` makes
+    it a tautology -- L mod L == 0, so every point passes -- and silently takes
+    the decode policy, the ECDH argument and verify_strict parity with it."""
+
+    def test_the_operator_reduces_mod_L_but_the_predicate_must_not(self):
+        t = unchecked_decode(SMALL_ORDER["order 2"])
+        self.assertTrue((GE.ORDER * t).is_identity)
+        self.assertFalse(_mul_int(t, GE.ORDER).is_identity)
+        self.assertFalse(t.in_prime_order_subgroup())
+
+    def test_the_two_paths_agree_inside_the_subgroup(self):
+        seed(41)
+        for _ in range(5):
+            p = Scalar(randint(1, L - 1)) * B
+            k = randint(1, 3 * L)
+            with self.subTest(k=k % 97):
+                self.assertEqual(k * p, _mul_int(p, k))
 
 
 if __name__ == "__main__":

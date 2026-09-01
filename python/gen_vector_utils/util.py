@@ -60,8 +60,11 @@ def exception_asdict(e: Exception) -> dict:
                 f"Conversion for type {type(value).__name__} is not implemented"
             )
 
-    # the last argument might contain the error message
-    if len(e.args) > 0 and isinstance(e.args[-1], str):
+    # The last argument might contain the error message. Bare ValueError is the suite's
+    # generic low-level rejection (secp256k1lab's core raises it bare; ed25519lab attaches
+    # a message), so its text is a library detail, not part of the error contract; record
+    # messages only for the typed exceptions (FaultyCoordinatorError, HostSeckeyError, etc.).
+    if type(e) is not ValueError and len(e.args) > 0 and isinstance(e.args[-1], str):
         error_info.setdefault("message", e.args[-1])
 
     # Update snake case keys into camel case keys to match the JSON vector format

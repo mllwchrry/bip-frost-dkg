@@ -128,7 +128,7 @@ class CoordinatorMsg(NamedTuple):
     def to_bytes(self) -> bytes:
         return b"".join(
             [
-                P.to_bytes()
+                P.to_bytes_with_identity()
                 for P in self.coms_to_secrets + self.sum_coms_to_nonconst_terms
             ]
         ) + b"".join(self.pops)
@@ -157,7 +157,7 @@ class CoordinatorInvestigationMsg(NamedTuple):
         return CoordinatorInvestigationMsg(partial_pubshares)
 
     def to_bytes(self) -> bytes:
-        return b"".join([P.to_bytes() for P in self.partial_pubshares])
+        return b"".join([P.to_bytes_with_identity() for P in self.partial_pubshares])
 
 
 ###

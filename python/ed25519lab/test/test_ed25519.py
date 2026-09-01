@@ -141,12 +141,17 @@ class GroupElementTests(unittest.TestCase):
 
     def test_neutral_element(self):
         self.assertTrue(GE().is_identity)
-        self.assertEqual(GE().to_bytes(), NEUTRAL_ENC)
+        self.assertEqual(GE().to_bytes_with_identity(), NEUTRAL_ENC)
         self.assertTrue(GE.from_bytes_with_identity(NEUTRAL_ENC).is_identity)
         with self.assertRaises(ValueError):
             GE.from_bytes(NEUTRAL_ENC)  # strict variant refuses it
         self.assertTrue(GE.sum().is_identity)
         self.assertTrue(GE.batch_mul().is_identity)
+    
+    def test_to_bytes_refuses_the_identity(self):
+        self.assertEqual(GE().to_bytes_with_identity(), NEUTRAL_ENC)
+        with self.assertRaises(ValueError):
+            GE().to_bytes()
 
     def test_neutral_is_not_the_order_two_point(self):
         # (0, -1) has x == 0 but is NOT the neutral element. Checking only x

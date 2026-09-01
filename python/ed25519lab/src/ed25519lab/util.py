@@ -39,7 +39,7 @@ def tagged_hash(tag: str, *parts: bytes) -> bytes:
     becomes exactly 32 bytes, so the data always begins at offset 32 and no tag
     can be a prefix of another. The cost is one extra hash per call.
 
-    This is BIP340's approach with the widths adjusted. Three differences, both
+    This is BIP340's approach with the widths adjusted. Three differences, all
     deliberate:
 
     * BIP340 hashes the tag TWICE. That is a SHA-256 midstate optimisation --
@@ -50,11 +50,11 @@ def tagged_hash(tag: str, *parts: bytes) -> bytes:
       then uses exactly one hash function everywhere. A second primitive in a
       reference implementation is one more thing to specify, port and get
       wrong, for no gain.
-    * The 64-byte digest is truncated to 32. This saves an entire SHA-512 
-      compression for short inputs without introducing any vulnerabilities 
-      (a 32-byte prefix still needs ~2**128 work to collide). int/nonce and 
-      int/challenge hash tag || 32 || 32 || 4: 100 bytes with a 32-byte tag 
-      (one compression), 132 with a 64-byte one (two).
+    * The 64-byte digest is truncated to 32. Any fixed width closes the prefix
+      hazard equally well, and a 32-byte prefix still needs ~2**128 work to
+      collide, so the second half buys nothing. It also makes the hashed input
+      32 bytes shorter, which saves a SHA-512 compression whenever that pulls
+      the total under a 128-byte block boundary.
 
     WHAT THE CALLER STILL HAS TO GUARANTEE
 

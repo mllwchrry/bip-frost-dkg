@@ -100,10 +100,10 @@ class EcdhStrictnessTests(unittest.TestCase):
             ecdh_ed25519(self.sk, peer, self.ctx, sending=True)
 
     def test_neutral_peer_key_is_rejected(self):
-        # It survives strict decoding -- it is in the prime-order subgroup --
-        # so this call site has to reject it explicitly, and does.
+        # Encode permissively on purpose: we are testing that ecdh_ed25519
+        # rejects the identity, not that to_bytes does.
         with self.assertRaises(ValueError):
-            ecdh_ed25519(self.sk, GE().to_bytes(), self.ctx, sending=True)
+            ecdh_ed25519(self.sk, GE().to_bytes_with_identity(), self.ctx, sending=True)
 
     def test_non_canonical_peer_key_is_rejected(self):
         from ed25519lab.ed25519 import FE

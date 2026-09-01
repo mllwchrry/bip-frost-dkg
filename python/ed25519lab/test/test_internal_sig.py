@@ -90,7 +90,7 @@ class SignVerifyTests(unittest.TestCase):
         self.assertFalse(internal_verify(b"m", self.pk, le(2**255 - 19) + sig[32:]))
 
     def test_identity_is_rejected_at_this_call_site(self):
-        neutral = GE().to_bytes()
+        neutral = GE().to_bytes_with_identity()
         sig = internal_sign(b"m", self.sk)
         self.assertFalse(internal_verify(b"m", neutral, sig))
         self.assertFalse(internal_verify(b"m", self.pk, neutral + sig[32:]))

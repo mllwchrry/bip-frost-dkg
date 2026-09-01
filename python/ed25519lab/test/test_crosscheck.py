@@ -113,7 +113,7 @@ class LibsodiumCrossCheck(unittest.TestCase):
             self.assertEqual(
                 (-p).to_bytes(),
                 sodium.crypto_core_ed25519_sub(
-                    GE().to_bytes(), p.to_bytes()
+                    GE().to_bytes_with_identity(), p.to_bytes()
                 ),
             )
 
@@ -192,7 +192,7 @@ class LibsodiumCrossCheck(unittest.TestCase):
         having two: the identity is a real element of the prime-order subgroup,
         it just is not a valid value at most call sites.
         """
-        neutral = GE().to_bytes()
+        neutral = GE().to_bytes_with_identity()
         self.assertEqual(neutral, b"\x01" + b"\x00" * 31)
         self.assertFalse(sodium.crypto_core_ed25519_is_valid_point(neutral))
         with self.assertRaises(ValueError):

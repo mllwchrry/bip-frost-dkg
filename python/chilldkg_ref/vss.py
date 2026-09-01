@@ -50,7 +50,7 @@ class VSSCommitment:
 
     def to_bytes(self) -> bytes:
         # Return commitments to the coefficients of f.
-        return b"".join([ge.to_bytes() for ge in self.ges])
+        return b"".join([ge.to_bytes_with_identity() for ge in self.ges])
 
     def t(self) -> int:
         return len(self.ges)
