@@ -1,27 +1,18 @@
 ```
-BIP: ?
-Title: ChillDKG: Distributed Key Generation for FROST
-Layer: Applications
-Authors: Tim Ruffing <me@real-or-random.org>
-         Jonas Nick <jonas@n-ck.net>
-         Illia Melnyk <mazylia6@gmail.com>
-         Mariia Zhvanko <mariia.zhvanko@gmail.com>
-         Sivaram Dhakshinamoorthy <siv2ram@gmail.com>
-Status: Draft
-Type: Specification
-Assigned: ?
-License: CC0-1.0
-License-Code: MIT
-Discussion: 2024-07-08: https://groups.google.com/g/bitcoindev/c/HE3HSnGTpoQ/m/euZvPxKeAQAJ
-Version: 0.3.0-dev
-Requires: 445
+  Title: ChillDKG: Distributed Key Generation for FROST
+  Authors: Tim Ruffing <me@real-or-random.org>
+           Jonas Nick <jonas@n-ck.net>
+           Illia Melnyk <mazylia6@gmail.com>
+           Mariia Zhvanko <mariia.zhvanko@gmail.com>
+           Sivaram Dhakshinamoorthy <siv2ram@gmail.com>
+  License: CC0-1.0
 ```
 
 # ChillDKG: Distributed Key Generation for FROST
 
 ### Abstract
 
-This Bitcoin Improvement Proposal proposes ChillDKG, a distributed key generation protocol (DKG) for use with the FROST Schnorr threshold signature scheme.
+This document proposes ChillDKG, a distributed key generation protocol (DKG) for use with the FROST threshold signature scheme over Ed25519.
 
 ### Copyright
 
@@ -33,7 +24,7 @@ The collection of test vectors therein (subdirectory `vectors/`) is, in addition
 
 ### Motivation
 
-The FROST threshold signature scheme [[KG20](https://eprint.iacr.org/2020/852), [CKM21](https://eprint.iacr.org/2021/1375), [BTZ22](https://eprint.iacr.org/2022/833), [CGRS23](https://eprint.iacr.org/2023/899)] enables `t`-of-`n` Schnorr signatures,
+The FROST threshold signature scheme [[KG20](https://eprint.iacr.org/2020/852), [CKM21](https://eprint.iacr.org/2021/1375), [BTZ22](https://eprint.iacr.org/2022/833), [CGRS23](https://eprint.iacr.org/2023/899)] enables `t`-of-`n` Ed25519 signatures,
 in which some threshold `t` of a group of `n` participants is required to produce a signature.
 FROST guarantees unforgeability as long as at most `t - 1` participants are compromised
 and remains functional as long as `t` honest participants do not lose their secret key material,
@@ -42,11 +33,11 @@ As a result, threshold signatures increase both security and availability,
 enabling users to escape the inherent dilemma between the contradicting goals of protecting a single secret key against theft and data loss simultaneously.
 
 [^t-edge-cases]: While `t = n` and `t = 1` are in principle supported, simpler alternatives are available in these cases.
-In the case of `t = n`, using a dedicated `n`-of-`n` multi-signature scheme such as MuSig2 [[BIP 327](bip-0327.mediawiki)] instead of FROST avoids the need for an interactive DKG.
-The case `t = 1` can be realized by letting one participant generate an ordinary [BIP 340](bip-0340.mediawiki) key pair and transmitting the key pair to every other participant, who can check its consistency and then simply use the ordinary [BIP 340](bip-0340.mediawiki) signing algorithm.
+In the case of `t = n`, using a dedicated `n`-of-`n` multi-signature scheme instead of FROST avoids the need for an interactive DKG.
+The case `t = 1` can be realized by letting one participant generate an ordinary Ed25519 key pair ([RFC 8032](https://www.rfc-editor.org/rfc/rfc8032.html)) and transmitting the key pair to every other participant, who can check its consistency and then simply use the ordinary Ed25519 signing algorithm.
 Participants still need to ensure that they agree on a key pair. A detailed specification is not in the scope of this document.
 
-[BIP 445](bip-0445.md) provides a specification of the FROST signing protocol tailored to [BIP 340](bip-0340.mediawiki) Schnorr signatures as deployed in Bitcoin.
+The [FROST signing specification][frost-signing] provides a FROST signing protocol that produces ordinary Ed25519 signatures ([RFC 8032](https://www.rfc-editor.org/rfc/rfc8032.html)).
 However, in order to use the specified protocol, the participants need to generate a shared *threshold public key* (representing the entire group with its `t`-of-`n` policy),
 together with `n` corresponding *secret shares* (held by the `n` participants) that allow to sign under the threshold public key.
 This key generation can, in principle, be performed by a trusted dealer who takes care of generating the threshold public key as well as all `n` secret shares,
@@ -70,7 +61,7 @@ which include not only parameters such as the generated threshold public key
 but also whether the DKG has succeeded at all.
 
 To understand the necessity of reaching agreement,
-consider the example of a DKG to set up a 2-of-3 Bitcoin wallet
+consider the example of a DKG to set up a 2-of-3 threshold wallet
 in which two participants are honest but the third participant is malicious.
 The malicious participant sends invalid secret shares to the first honest participant, but valid shares to the second honest participant.
 While the first honest participant cannot finish the DKG,
@@ -84,7 +75,7 @@ Those funds will be lost irrevocably because the single remaining secret share o
 To sum up, there is currently no description of PedPop that
 does not assume the availability of external secure channels and consensus
 and thus can be turned into a standalone implementation.
-To overcome these issues, we propose ChillDKG in this BIP.
+To overcome these issues, we propose ChillDKG in this document.
 ChillDKG is a variant of PedPop with "batteries included",
 i.e., it incorporates minimal but sufficient implementations of secure channels and consensus
 and thus does not have external dependencies.
@@ -129,11 +120,6 @@ which is common to all participants and does not need to be kept confidential.
 Recovering a device that has participated in a DKG session then requires just the device's host secret key and the recovery data,
 the latter of which can be obtained from any cooperative participant (or the coordinator) or from an untrusted backup provider.
 
-ChillDKG outputs a threshold public key that can be safely used in Taproot outputs [[BIP 341](bip-0341.mediawiki)].
-In contrast, a standard PedPop implementation would allow a malicious participant to secretly embed a Taproot commitment to a script path within the threshold public key.
-If such a key was used directly in a Taproot output, the malicious participant could spend the output through their hidden script path, bypassing the requirement for `t - 1` additional signatures.
-While [BIP 341](bip-0341.mediawiki) outlines special precautions for using threshold public keys generated by standard PedPop, ChillDKG eliminates this vulnerability entirely, providing built-in protection against accidental misuse.
-
 If a ChillDKG session fails due to the participants or the coordinator deviating from the protocol,
 any aborting party will be able to identify and blame a single party responsible for the failure
 (assuming the network, and, depending on the circumstances, the coordinator, are reliable).
@@ -151,7 +137,6 @@ In summary, we aim for the following design goals:
  - **Simple backups**: ChillDKG allows recovering the DKG output using the host secret key and common recovery data shared among all participants and the coordinator. This eliminates the need for session-specific backups, simplifying user experience.
  - **Untrusted coordinator**: Like FROST, ChillDKG uses a coordinator that relays messages between the participants. This simplifies the network topology, and the coordinator additionally reduces communication overhead by aggregating some of the messages. A faulty coordinator can force the DKG to fail but cannot negatively affect the security of the DKG.
  - **Per-participant public shares**: ChillDKG supports partial signature verification in FROST signing sessions.
- - **Taproot-safe threshold public key**: ChillDKG prevents malicious participants from embedding a hidden Taproot commitment to a script path in the threshold public key.
  - **Blame functionality**: If a ChillDKG session aborts, it is possible to identify and blame a single party responsible for the failure (assuming the network, and, depending on the circumstances, the coordinator, are reliable).
 
 In summary, ChillDKG incorporates solutions for both secure channels and consensus and simplifies backups in practice.
@@ -169,7 +154,7 @@ This approach is undesirable in most scenarios, as a faulty coordinator would ha
 and even if ChillDKG's design did not include a coordinator and participants had direct communication links to each other, it would be unclear how to achieve robustness in a dishonest majority setting.
 
 Moreover, we believe that it is preferable to err on the side of caution even in the case of benign failures.
-For example, consider a key generation ceremony for a threshold cold wallet intended to store large amounts of Bitcoin.
+For example, consider a key generation ceremony for a threshold cold wallet intended to store large amounts of funds.
 If it turns out that one of the devices participating appears non-responsive, e.g., due to a loss of network or a software bug,
 users will typically prefer security to progress, and abort the protocol instead of forcing successful termination of the ceremony by excluding the device from the DKG session.
 While warnings can be presented to users in this case, users tend to misunderstand and ignore them.
@@ -181,7 +166,7 @@ In other words, what is primarily required to ensure liveness in these applicati
 
 ### Structure of this Document
 
-This BIP includes a normative reference implementation in Python 3.12
+This document includes a normative reference implementation in Python 3.12
 (see [`python/chilldkg_ref/chilldkg.py`](python/chilldkg_ref/chilldkg.py)).
 Due to the complexity of ChillDKG, we refrain from providing an additional pseudocode description.
 
@@ -202,6 +187,15 @@ While SimplPedPop and EncPedPop may in principle serve as building blocks of oth
 this requires careful further consideration, which is not in the scope of this document.
 Consequently, implementations **should not** expose the algorithms of the building blocks as part of a high-level API, which is intended to be safe to use.
 
+### Ed25519 Conventions
+
+ChillDKG operates on the edwards25519 curve and its prime-order subgroup, as specified in [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032.html):
+
+ - **Group.** The curve group has order `8 * L` for a prime `L`; all protocol values are points of the prime-order subgroup of order `L`. The identity element is the point `(0, 1)`, and the base point is denoted `B`.
+ - **Point encoding.** A point is encoded in 32 bytes as specified in RFC 8032: the little-endian encoding of its y-coordinate, with the sign of the x-coordinate stored in the most significant bit of the last byte. There is a single point encoding, and the identity element is encodable like any other point. Two decoding modes are used: a *strict* mode that rejects non-canonical encodings, points outside the prime-order subgroup, and the identity element; and an *identity-accepting* mode that additionally accepts the canonical encoding of the identity element. Host public keys are decoded strictly, and the DKG output (the threshold public key and the public shares) is encoded strictly; the VSS commitments and the fields of the coordinator's aggregated messages use the identity-accepting mode.
+ - **Scalar encoding.** A scalar is an integer modulo `L`, encoded in 32 bytes in little-endian. Hash outputs are mapped to scalars by reducing the full 64-byte SHA-512 output modulo `L` ("wide reduction").
+ - **Hashing.** All hashing uses SHA-512, domain-separated with tags: the tagged hash of `x` under an ASCII tag `tag` is `SHA512(SHA512(tag)[0:32] || x)`. Other integers (identifiers, lengths) are encoded in big-endian.
+
 ### DKG Protocol SimplPedPop
 
 (See [`python/chilldkg_ref/simplpedpop.py`](python/chilldkg_ref/simplpedpop.py).)
@@ -209,10 +203,9 @@ Consequently, implementations **should not** expose the algorithms of the buildi
 The SimplPedPop protocol has been proposed by Chu, Gerhart, Ruffing, and Schröder [Section 4, [CGRS23](https://eprint.iacr.org/2023/899)].
 We make the following modifications as compared to the original SimplPedPop proposal:
 
- - Every participant holds a secret seed, from which all required random values are derived deterministically using a pseudorandom function (based on tagged hashes [[BIP 340](bip-0340.mediawiki)]).
+ - Every participant holds a secret seed, from which all required random values are derived deterministically using a pseudorandom function (based on tagged hashes).
  - Individual participants' public shares are added to the output of the DKG. This allows partial signature verification.
  - The participants send VSS commitments to an untrusted coordinator instead of directly to each other. This lets the coordinator aggregate VSS commitments, which reduces communication costs. Nevertheless, if a session fails, participants are able to investigate who provided invalid secret shares by asking the coordinator for the other participants' individual contributions to their public share.
- - To prevent a malicious participant from embedding a Taproot script path in the threshold public key, the participants tweak the VSS commitment such that the corresponding threshold public key has an unspendable script path.
  - The proofs of possession are omitted from the data for the equality check.[^pop-eq] This reduces the size of the backups in ChillDKG.
 
 [^pop-eq]: An inspection of the security proof [[CGRS23](https://eprint.iacr.org/2023/899)] shows that this modification does not affect security.
@@ -232,11 +225,11 @@ Our variant of the SimplPedPop protocol then works as follows:
     (This will be realized in EncPedPop using encryption.)
 
     Participant `i` then sends a VSS commitment,
-    which is a vector `com = (com[0], ...,  com[t-1]) = (a_i[0] * G, ..., a_i[t-1] * G)` of group elements,
-    where `G` is the base point of the secp256k1 elliptic curve,
-    and a BIP 340 Schnorr signature `pop` on message "`i`" with secret key `a_i[0]` to the coordinator.
-    (The Schnorr signature acts as a *proof of possession*,
-    i.e., it proves knowledge of the discrete logarithm of `com[0] = a_i[0] * G`.
+    which is a vector `com = (com[0], ...,  com[t-1]) = (a_i[0] * B, ..., a_i[t-1] * B)` of group elements,
+    where `B` is the Ed25519 base point,
+    and an [internal signature](#the-internal-signature-scheme) `pop` on message "`i`" with secret key `a_i[0]` to the coordinator.
+    (The signature acts as a *proof of possession*,
+    i.e., it proves knowledge of the discrete logarithm of `com[0] = a_i[0] * B`.
     This avoids rogue-key attacks, also known as key cancellation attacks.)
 
 2.  Upon receiving `coms[j] = (coms[j][0], ...,  coms[j][t-1])` and `pops[j]` from every participant `j`,
@@ -269,7 +262,7 @@ Our variant of the SimplPedPop protocol then works as follows:
     Let `partial_secshares` be the vector of the VSS shares that participant `i` has privately obtained from each participant,
     and let `secshare = partial_secshares[0] + ... + partial_secshares[n-1]` be the sum of the vector components.
     Participant `i` checks the validity of `secshare` against `sum_coms`
-    by checking if the equation `secshare * G = pubshare` holds.
+    by checking if the equation `secshare * B = pubshare` holds.
     (`secshare` is supposed to be equal to `f(i+1)`.)
 
     If the check fails, participant `i` aborts.
@@ -281,22 +274,17 @@ Our variant of the SimplPedPop protocol then works as follows:
     partial_pubshares[j] = (i+1)^0 * coms[j][0] + ... + (i+1)^(t-1) * coms[j][t-1]
     ```
     With this vector at hand, participant `i` verifies each component of `partial_secshares` individually
-    by checking for which participant `j` the equation `partial_secshares[j] * G = partial_pubshares[j]` does not hold.
+    by checking for which participant `j` the equation `partial_secshares[j] * B = partial_pubshares[j]` does not hold.
     Participant `i` blames this participant `j`.
 
-    Otherwise, i.e., in the successful case that the equation `secshare * G = pubshare` holds, participant `i` proceeds as follows.
-    In order to obtain a threshold public key with an unspendable Taproot script path [[BIP 341](bip-0341.mediawiki)],
-    participant `i` computes a Taproot tweak `tweak` for an unspendable script path,
-    and adds the point `tweak * G` to `sum_coms[0]`, resulting in a new VSS commitment called `sum_coms_tweaked`.
-    Participant `i` computes the public share of every participant as
+    Otherwise, i.e., in the successful case that the equation `secshare * B = pubshare` holds,
+    participant `i` computes the public share of every participant as
     ```
-    pubshares[j] = (j+1)^0 * sum_coms_tweaked[0] + ... + (j+1)^(t-1) * sum_coms_tweaked[t-1]
+    pubshares[j] = (j+1)^0 * sum_coms[0] + ... + (j+1)^(t-1) * sum_coms[t-1]
     ```
-    Correspondingly, participant `i` computes `secshare_tweaked = secshare + tweak`.
-
     Then, participant `i` sets the DKG output consisting of
-    this participant's secret share `secshare_tweaked`,
-    the threshold public key `thresh_pk = sum_coms_tweaked[0]`, and
+    this participant's secret share `secshare`,
+    the threshold public key `thresh_pk = sum_coms[0]`, and
     all participants' public shares `pubshares`.
 
     As a final step, participant `i` enters a session of an external equality check protocol
@@ -308,6 +296,15 @@ Our variant of the SimplPedPop protocol then works as follows:
     participant `i` returns successfully with the DKG outputs as computed above.
     Details of the interface of the equality check protocol will be described further below in
     [Subsection "Background on Equality Checks"](#background-on-equality-checks).
+
+A note on point decoding (see [Section "Ed25519 Conventions"](#ed25519-conventions)):
+every point-valued message field, i.e., the individual VSS commitments, the coordinator's `coms_to_secrets` and `sum_coms_to_nonconst_terms`, and the `partial_pubshares` of an investigation message,
+is decoded with the identity-accepting variant.
+A summed field such as `sum_coms_to_nonconst_terms` can legitimately cancel to the identity even though every summand is valid, so rejecting the identity at the serialization layer would reject valid data.
+A non-summed field could instead carry the identity because a malicious participant placed it there (e.g., by committing to a zero secret); decoding it rather than rejecting it is what preserves identifiable aborts, since the fault must be attributable to a specific participant at the protocol layer rather than surfacing anonymously as a decoding failure.
+Rejecting a forbidden identity is therefore left to the protocol layer:
+a `coms_to_secrets` entry equal to the identity is caught by an explicit check that blames the participant before its proof of possession is verified (an honest participant never commits to a zero secret),
+and an aggregate that yields an identity public share or threshold public key is refused when the DKG output is assembled, whose fields are encoded strictly.
 
 ### DKG Protocol EncPedPop
 
@@ -373,7 +370,7 @@ Eq may not return at all to the calling participant,
 but if it returns successfully to some participant, then all honest participants agree on the value `eq_input`.
 (However, it may be the case that not all honest participants have established this fact yet.)
 This means that the DKG session was successful, and the resulting threshold public key can be returned to the participant,
-who can use it, e.g., by sending funds to some Bitcoin address derived from it.
+who can use it, e.g., by sending funds to it.
 
 More formally, Eq must fulfill the following properties [[CGRS23](https://eprint.iacr.org/2023/899)]:
  - **Integrity:** If Eq returns successfully to some honest participant, then for every pair of input values `eq_input` and `eq_input'` provided by two honest participants, we have `eq_input = eq_input'`.
@@ -410,15 +407,14 @@ under the combination of the gap-DH and gap-DL assumptions, and this result can 
 The CertEq protocol is straightforward:[^certeq-literature]
 Every participant sends a signature on their input value `eq_input` to every other participant (via the untrusted coordinator),
 and expects to receive valid signatures on `eq_input` from the other participants.
+The signatures are created with the [internal signature scheme](#the-internal-signature-scheme) under the participants' host keys.
 A participant terminates successfully as soon as the participant has collected what we call a *success certificate*,
 i.e., a full list of valid signatures from all `n` participants (including themselves).[^multisig-cert]
 
 [^multisig-cert]: Abstractly, the required primitive is a multi-signature scheme, i.e., `n` participants signing the same message `eq_input`.
 We have chosen the naive scheme of collecting a list of `n` individual signatures for simplicity.
-Other multi-signatures schemes,
-e.g., MuSig2 [[BIP 327](bip-0327.mediawiki)] or a scheme based on Schnorr signature half aggregation [[Halfagg-BIP-Draft](https://github.com/BlockstreamResearch/cross-input-aggregation/blob/master/half-aggregation.mediawiki), [CGKN21](https://eprint.iacr.org/2021/350), [CZ22](https://eprint.iacr.org/2022/222)],
-could be used instead to reduce the size of the success certificate.
-These methods are out of scope of this document.
+Other multi-signature schemes could be used instead to reduce the size of the success certificate,
+but these methods are out of scope of this document.
 
 [^certeq-literature]: CertEq can be viewed as a signed variant of the Goldwasser-Lindell echo broadcast protocol [[GL05](https://eprint.iacr.org/2002/040), Protocol 1], or alternatively, as a unanimous variant of Signed Echo Broadcast [[Rei94](https://doi.org/10.1145/191177.191194), Section 4], [[CGR11](https://doi.org/10.1007/978-3-642-15260-3), Algorithm 3.17].
 
@@ -435,6 +431,28 @@ due to unreliable communication links, a faulty coordinator, or faulty participa
 Thus, the certificate does not need to be sent during a normal run of CertEq,
 but can instead be presented to other participants later,
 e.g., during a request to participate in a FROST signing session.
+
+#### The Internal Signature Scheme
+
+(See `internal_sig.py` in the vendored ed25519lab library.)
+
+All single-party signatures in ChillDKG, i.e., the proofs of possession in SimplPedPop, the CertEq signatures, and the recovery acknowledgments (see [Subsection "Recovering Stuck Parties"](#recovering-stuck-parties)), are created with one *internal signature scheme*, implemented as `internal_sign` and `internal_verify` in the reference implementation.
+The scheme is an EdDSA-style signature over the prime-order subgroup, but it is deliberately not plain Ed25519 signing:
+
+ - **The challenge is domain-separated, making internal signatures non-replayable.**
+   The challenge is computed as the tagged hash `e = SHA-512(SHA-512(tag)[0:32] || bytes(R) || bytes(A) || m)` (with wide reduction), where the tag's 32-byte digest precedes the nonce point `R` and the public key `A`.
+   Standard Ed25519 computes `e = SHA-512(bytes(R) || bytes(A) || m)`.
+   Since `R` and `A` are pinned by the signature and the key, no choice of message can make the two challenges coincide (that would require a SHA-512 collision), so an internal signature is structurally unverifiable as an ordinary Ed25519 signature, and vice versa.
+   In particular, a proof of possession or a CertEq signature can never be replayed as an ordinary signature of the host key on some message.
+   (Had the tag instead been prepended to the message only, the result would have been a valid Ed25519 signature on the prefixed message, which is exactly the property we do not want.)
+ - **The nonce derivation is explicit.**
+   Standard Ed25519 derives its deterministic nonce from a by-product of the seed-based key generation, which does not exist for ChillDKG's raw-scalar host keys (see [Subsection "Host Keys are Raw Scalars"](#host-keys-are-raw-scalars)).
+   The nonce is instead derived as the tagged hash `k = SHA-512(SHA-512(tag)[0:32] || d || aux || m)` (with wide reduction), where `d` is the 32-byte secret scalar and `aux` is exactly 32 bytes of optional auxiliary randomness (all zeros for the purely deterministic variant).[^aux-fixed-width]
+   Deterministic nonces are safe here because all internal signatures are single-party signatures; the derandomization attack that forbids deterministic nonces in multi-party signing does not apply.
+ - **Verification uses the same group equation as the rest of the protocol**: the cofactorless check `[s]B = R + [e]A`, with all points decoded strictly.
+   A signature is 64 bytes, the serialization of `R` followed by the serialization of `s`.
+
+[^aux-fixed-width]: The auxiliary randomness is fixed-width because plain concatenation of variable-length fields is not injective: distinct `(aux, m)` pairs could otherwise produce the same nonce input and therefore the same nonce `k`, and two signatures with the same `R` on different messages reveal the secret key. With `aux` fixed at 32 bytes, the message is unambiguously the tail of the hash input.
 
 #### Facilitating Backup and Recovery
 
@@ -475,11 +493,11 @@ Developers who would like to implement ChillDKG or understand ChillDKG's interna
 
 ### Use ChillDKG only for FROST
 
-ChillDKG is designed for usage with the FROST signing protocol as specified in [BIP 445](bip-0445.md),
+ChillDKG is designed for usage with the FROST signing protocol as specified in the [FROST signing specification][frost-signing],
 and its security depends on the specifics of FROST.
 We stress that ChillDKG is not a general-purpose DKG protocol,[^no-simulatable-dkg]
 and **must not** be combined with other threshold cryptographic schemes,
-e.g., FROST specifications other than [BIP 445](bip-0445.md), threshold signature schemes other than FROST, or threshold decryption schemes,
+e.g., other FROST specifications, threshold signature schemes other than FROST, or threshold decryption schemes,
 without careful further consideration, which is not in the scope of this document.
 
 [^no-simulatable-dkg]: As a variant of Pedersen DKG, ChillDKG does not provide simulation-based security [[GJKR07](https://doi.org/10.1007/s00145-006-0347-3)]. Roughly speaking, if ChillDKG is combined with some threshold cryptographic scheme, the security of the combination is not automatically implied by the security of the two components. Instead, the security of every combination must be analyzed separately. The security of the specific combination of SimplPedPop (as the core building block of ChillDKG) and FROST has been analyzed [[CGRS23](https://eprint.iacr.org/2023/899)].
@@ -511,6 +529,17 @@ also requires the assumption that all participants have authentic copies of each
 Each party (i.e., participant or coordinator) is assumed to be either *honest* (i.e., reliable and adhering to the protocol)
 or *faulty* (i.e., controlled by an attacker or defective).
 
+#### Host Keys are Raw Scalars
+
+A host secret key is a uniformly random scalar in the range of `1` to `L - 1`, encoded as 32 bytes in little-endian,
+and the corresponding host public key is the 32-byte encoding of the point `[hostseckey]B`.
+Unlike Ed25519 key generation as specified in RFC 8032, there is no seed that is expanded and clamped into a scalar via SHA-512: the host secret key *is* the scalar.
+
+This choice is deliberate:
+all of ChillDKG's internal signatures (proofs of possession, CertEq signatures, and recovery acknowledgments) can then use a single signing construction with an explicit, documented nonce derivation (see [Subsection "The Internal Signature Scheme"](#the-internal-signature-scheme)),
+instead of relying on RFC 8032's seed-derived nonce prefix, which would not exist for keys that are generated or processed as scalars.
+A consequence is that host key pairs produced by seed-based Ed25519 libraries are not directly usable as ChillDKG host key pairs; host secret keys are generated as described in the API documentation of `hostpubkey_gen`.
+
 ### Network Setup
 
 Each participant has a point-to-point communication link to the coordinator
@@ -524,9 +553,9 @@ but even an attacker in full control of communication links will not be able to 
 If a ChillDKG session returns an output to a participant or the coordinator,
 then we say that this party *deems the protocol session successful*.
 In that case, the DKG output is a triple consisting of a *secret share* for participating in FROST signing sessions (individual to each participant, not returned to the coordinator), the *threshold public key* representing the `t`-of-`n` policy of the group (common to all participants and the coordinator), and a list of `n` *public shares* for verification of individual contributions to a FROST signing session (common to all participants and the coordinator).[^id-position-mapping]
-See [BIP 445](bip-0445.md) for details on signing.
+See the [FROST signing specification][frost-signing] for details on signing.
 
-[^id-position-mapping]: The secret sharing is as expected by [BIP 445](bip-0445.md), i.e., there exists a scalar polynomial `f` of degree `t - 1` such that `f(0)` is the discrete logarithm of the threshold public key and every participant with identifier `i` has secret share `f(i + 1)`.
+[^id-position-mapping]: The secret sharing is as expected by the FROST signing protocol, i.e., there exists a scalar polynomial `f` of degree `t - 1` such that `f(0)` is the discrete logarithm of the threshold public key and every participant with identifier `i` has secret share `f(i + 1)`.
 
 Moreover, all parties obtain *recovery data* (common to all participants and the coordinator), whose purpose is detailed in the next subsection.
 
@@ -534,8 +563,8 @@ Moreover, all parties obtain *recovery data* (common to all participants and the
 
 Losing the secret share or the threshold public key, e.g., after the loss of a participant device, will render the participant incapable of participating in signing sessions.
 As these values depend on the contributions of the other participants to the DKG session, they can,
-unlike deterministically derived secret keys [[BIP 32](bip-0032.mediawiki)] as typically used for single-signer Schnorr signatures [[BIP 340](bip-0340.mediawiki)] or MuSig [[BIP 327](bip-0327.mediawiki)],
-not be rederived solely from the participant's seed.
+unlike secret keys derived deterministically from a single seed (as is typical in single-signer setups),
+not be rederived solely from the participant's own secrets.
 
 To facilitate backups of a DKG session,
 ChillDKG offers the possibility to recover a participant's DKG output from the participant's host secret key and the recovery data of the specific session.
@@ -550,7 +579,7 @@ so that it can, in principle, be stored with an untrusted third-party backup pro
 Users **should** be aware that the session parameters (the threshold and the host public keys) and public parts of the DKG output (the threshold public key and the public shares) can be inferred from the recovery data, which may constitute a privacy issue.
 To eliminate this issue, a participant can encrypt the recovery data using an encryption key derived from their host secret key before giving it out to untrusted parties.
 Recovery from encrypted recovery data still requires only the participant's host secret key, with no additional secrets needed.
-This BIP does not specify the method of encryption.
+This document does not specify the method of encryption.
 
 Keeping backups of the secret key accessible and secure is hard (typically similarly hard as keeping the participant devices themselves).
 As a consequence, it may not be an unreasonable strategy in a threshold setup not to perform backups of host secret keys at all,
@@ -577,7 +606,7 @@ and thereby relies on the participants' ability to participate in signing sessio
 or at least, that the recovery data will be available to convince any stuck participants of the success of the DKG session.
 
 For an example of what could go wrong,
-assume that some participant deems the DKG session successful and uses the threshold public key by sending funds to some Bitcoin address derived from it.
+assume that some participant deems the DKG session successful and uses the threshold public key, e.g., by sending funds to it.
 Even though everything looks fine from the perspective of this participant,
 it is entirely possible that this participant is the only one who has deemed the DKG session successful,
 and thus (besides the untrusted coordinator) the only one who knows the recovery data.
@@ -594,12 +623,12 @@ One simple method of obtaining confirmation is to collect signed confirmation me
 Depending on the application, other methods may be appropriate.
 For example, in a scenario where a single user employs multiple signing devices in the same room to set up a threshold wallet,
 the user could check that all `n` devices signal confirmation via their display.
-Alternatively, the user could check all `n` devices when generating a receiving address for the first time,
+Alternatively, the user could check all `n` devices when setting up to receive funds for the first time,
 which constitutes the first use of the threshold public key.
 
 If a recovering party (see [Backup and Recovery](#backup-and-recovery)) cannot (re-)obtain confirmations,
 this simply means they **should** stop using the threshold public key going forward,
-e.g., stop sending additional funds to addresses derived from it.
+e.g., stop sending additional funds to it.
 (But, in contrast to the bad example laid out above,
 it will still be possible to spend the funds,
 and even recovered participants can participate in signing sessions.)
@@ -712,12 +741,12 @@ Compute the participant's host public key from the host secret key.
 The host public key is the long-term cryptographic identity of the
 participant.
 
-This function interprets `hostseckey` as big-endian integer, and computes
-the corresponding "plain" public key in compressed serialization (33 bytes,
-starting with 0x02 or 0x03). This is the key generation procedure
-traditionally used in Bitcoin, e.g., for ECDSA. In other words, this
-function is equivalent to `IndividualPubkey` as defined in
-[[BIP 327](bip-0327.mediawiki#key-generation-of-an-individual-signer)].
+This function interprets `hostseckey` as a raw little-endian scalar and
+computes the corresponding Ed25519 public key `[hostseckey]B` in the
+32-byte RFC 8032 encoding. There is no clamping and no SHA-512 seed
+expansion: host keys are raw scalars so that a single signing construction
+(internal_sign) suffices for all of the protocol's internal signatures
+(proofs of possession, CertEq, and recovery acknowledgments).
 
 *Arguments*:
 
@@ -736,7 +765,7 @@ function is equivalent to `IndividualPubkey` as defined in
 
 *Returns*:
 
-  The host public key (33 bytes).
+  The host public key (32 bytes).
 
 
 *Raises*:
@@ -771,13 +800,11 @@ A `SessionParams` tuple holds the common parameters of a DKG session.
   Each participant **must** ensure to have authentic copies of all other
   participants' host public keys before the start of the session, e.g., by
   confirming authenticity of each host public key with the expected key
-  holder out of band. This is analogous to traditional threshold signatures
-  (known as "multisig" in the Bitcoin community),
-  [[BIP 383](bip-0383.mediawiki)], where a signer needs the other signers'
-  authentic extended public keys ("xpubs") to generate multisig addresses,
-  or MuSig2 [[BIP 327](bip-0327.mediawiki)], where a signer needs the other
-  participants' authentic individual public keys to generate an aggregated
-  public key.
+  holder out of band. This requirement is not specific to ChillDKG: any
+  multi-party scheme in which a group key is derived from the participants'
+  individual public keys (e.g., non-interactive key aggregation) equally
+  requires every participant to hold authentic copies of the other
+  participants' keys.
 
   A DKG session will fail if the participants and the coordinator in a session
   don't have the `hostpubkeys` in the same order. This will make sure that
@@ -786,8 +813,8 @@ A `SessionParams` tuple holds the common parameters of a DKG session.
   the first `t` participants are the primary participants for signing and the
   others are fallback participants). If there is no canonical order of the
   participants in the application, the caller can sort the list of host public
-  keys with the [KeySort algorithm specified in
-  BIP 327](bip-0327.mediawiki#key-sorting) to abstract away from the order.
+  keys lexicographically by their 32-byte encoding to abstract away from the
+  order.
 
 #### params\_hash
 
@@ -811,7 +838,7 @@ obtained authentic public host keys.
 
 *Returns*:
 
-- `bytes` - The parameters hash, a 32-byte string.
+- `bytes` - The parameters hash, a 64-byte string.
 
 
 *Raises*:
@@ -857,7 +884,7 @@ class InvalidHostPubkeyError(SessionParamsError)
 Raised if a host public key is invalid.
 
 This exception is raised when a host public key in the `SessionParams` tuple
-is not a valid public key in compressed serialization. Assuming the host
+is not a valid public key (RFC 8032 encoding). Assuming the host
 public keys in question has been transmitted correctly, this exception
 implies that the corresponding participant is faulty.
 
@@ -889,9 +916,9 @@ Holds the outputs of a DKG session.
 - `secshare` - Secret share of the participant (32 bytes, or `None` for
   coordinator).
 - `thresh_pk` - Generated threshold public key representing the group
-  (33 bytes, in compressed serialization).
-- `pubshares` - Public shares of the participants (33 bytes each, in
-  compressed serialization).
+  (32 bytes, RFC 8032 encoding).
+- `pubshares` - Public shares of the participants (32 bytes each,
+  RFC 8032 encoding).
 
 #### participant\_step1
 
@@ -915,7 +942,7 @@ Perform a participant's first step of a ChillDKG session.
   not** be reused (i.e., it must be passed only to one
   `participant_step2` call).
 - `bytes` - The first message to be sent to the coordinator
-  (`33*t + 32*n + 97` bytes).
+  (`32*t + 32*n + 96` bytes).
 
 
 *Raises*:
@@ -964,10 +991,10 @@ function.
 - `state1` - The participant's session state as output by
   `participant_step1`.
 - `cmsg1` - The first message received from the coordinator
-  (`162*n + 33*(t-1)` bytes).
+  (`160*n + 32*(t-1)` bytes).
 - `aux_rand` - Auxiliary randomness (32 bytes). FRESH 32-byte randomness
   is optimal, but 16 random bytes or a counter padded to 32 bytes
-  is acceptable (see BIP 340).
+  is acceptable (see internal_sign).
 
 
 *Returns*:
@@ -1081,7 +1108,7 @@ exceptions.
 - `error` - `UnknownFaultyParticipantOrCoordinatorError` raised by
   `participant_step2`.
 - `cinv` - Coordinator investigation message for this participant as output
-  by `coordinator_investigate` (`65*n` bytes).
+  by `coordinator_investigate` (`64*n` bytes).
 
 
 *Raises*:
@@ -1103,7 +1130,7 @@ Perform the coordinator's first step of a ChillDKG session.
 *Arguments*:
 
 - `pmsgs1` - List of first messages received from the participants
-  (`33*t + 32*n + 97` bytes each). The list's length must equal
+  (`32*t + 32*n + 96` bytes each). The list's length must equal
   the total number of participants.
 - `params` - Common session parameters.
 
@@ -1115,7 +1142,7 @@ Perform the coordinator's first step of a ChillDKG session.
   supposed to be reused (i.e., it is supposed to be passed only to one
   `coordinator_finalize` call).
 - `bytes` - The first message to be sent to all participants
-  (`162*n + 33*(t-1)` bytes).
+  (`160*n + 32*(t-1)` bytes).
 
 
 *Raises*:
@@ -1193,14 +1220,14 @@ information.
 *Arguments*:
 
 - `pmsgs` - List of serialized first messages received from the participants
-  (`33*t + 32*n + 97` bytes each).
+  (`32*t + 32*n + 96` bytes each).
 - `params` - Common session parameters.
 
 
 *Returns*:
 
 - `List[bytes]` - A list of investigation messages, each intended for a
-  single participant (`65*n` bytes each).
+  single participant (`64*n` bytes each).
 
 
 *Raises*:
@@ -1302,7 +1329,7 @@ successfully received the complete recovery data.
 - `params` - Common session parameters.
 - `aux_rand` - Auxiliary randomness (32 bytes). FRESH 32-byte randomness
   is optimal, but 16 random bytes or a counter padded to 32 bytes
-  is acceptable (see BIP 340).
+  is acceptable (see internal_sign).
 
 
 *Returns*:
@@ -1469,42 +1496,5 @@ the coordinator (namely, sending invalid encrypted secret shares).
 - `inv_data` - Information required to perform the investigation.
 <!--end of pydoc.md-->
 
-## Changelog
-
-To help the reader understand updates to this document, we attach a version number that resembles "semantic versioning" (`MAJOR.MINOR.PATCH`).
-The `MAJOR` version is incremented if changes to the BIP are introduced that are incompatible with prior versions.
-An exception to this rule is `MAJOR` version zero (0.y.z) which is for development and does not need to be incremented if backwards-incompatible changes are introduced.
-The `MINOR` version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
-The `PATCH` version is incremented for other noteworthy changes (bug fixes, test vectors, important clarifications, etc.).
-
-* *0.3.0* (2026-07-30): Major expansion of the reference implementation with message serialization, comprehensive test coverage, and API refinements:
-  * Add message serialization for all protocol messages, enabling byte-level interoperability between implementations.
-  * Add optional recovery acknowledgment round: `participant_recovery_ack_sign` and `participant_recovery_acks_verify` let participants confirm receipt of recovery data before use.
-  * Add comprehensive test vectors for all public API functions, including per-participant edge cases, boundary configurations, and exhaustive error scenarios.
-  * Allow single-participant sessions (`n = 1`).
-  * Fix blaming for public nonces: pubnonces are now validated as curve points, and failures are attributed to the sending participant instead of surfacing as an unattributed `ValueError`.
-  * Fix blaming in `participant_finalize`: an invalid certificate signature is now attributed to the coordinator, since the coordinator verifies all signatures before broadcasting the certificate.
-  * Fix TapTweak to use BIP 341's x-only serialization.
-  * Split `recover` into separate functions `participant_recover` and `coordinator_recover`.
-  * Rewrite Setup section to make the authentic-hostpubkeys requirement explicit as a precondition of the session.
-  * Fix EncPedPop description to match the reference implementation.
-  * Expose randomness as explicit parameters: `participant_step1` takes `random` and `participant_step2` takes `aux_rand`, which were previously generated internally.
-  * Remove message classes from the public API; protocol messages are passed as `bytes`.
-  * Remove `ParticipantMsgParseError` and `CoordinatorMsgParseError` from the public API.
-  * Add `RandomnessError`, `InvalidRecoveryAckError`, and `FaultyParticipantError` to the public API.
-  * Align terminology and naming with the draft of [BIP 445](bip-0445.md), including renaming participant "index" to "identifier".
-  * Rename variables `id` to `participant_id` (and similar) to avoid shadowing the Python built-in `id` function as well as for enhanced clarity; this change also affects some field names in the test vectors.
-  * Rename `params_id` to `params_hash` to avoid confusion with the participant identifier and update the hash tag accordingly.
-  * Rename `secp256k1proto` to `secp256k1lab` and separate it as an independent subtree for reuse across projects; see the [upstream repository](https://github.com/secp256k1lab/secp256k1lab).
-  * Update the preamble per BIP 3.
-* *0.2.0* (2024-12-19): In addition to various readability improvements to specification and reference implementation, the following major changes were implemented:
-  * Fix security vulnerability where the CertEq signature did not cover the entire message.
-  * Add blame functionality to identify faulty parties, including an investigation phase.
-  * Make threshold public key Taproot-safe by default.
-  * Let each participant encrypt the secret share intended for themselves so that it can be decrypted instead of re-derived during recovery. The encryption is symmetric to avoid the overhead of an ECDH computation.
-* *0.1.0* (2024-07-08): Publication of draft BIP on the bitcoin-dev mailing list
-
-## Acknowledgments
-
-We thank Lloyd Fournier for many ideas as well as insightful and deep discussions.
-We also thank Alex Akselrod, Sebastian Falbesoner, Nick Farrow, Matt Leon, pool2win, Jesse Posner, and SeedHammer for their comments and contributions to this document.
+<!-- References -->
+[frost-signing]: https://github.com/BlockstreamResearch/frost-ed25519-signing

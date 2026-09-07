@@ -212,13 +212,11 @@ class SessionParams(NamedTuple):
     Each participant **must** ensure to have authentic copies of all other
     participants' host public keys before the start of the session, e.g., by
     confirming authenticity of each host public key with the expected key
-    holder out of band. This is analogous to traditional threshold signatures
-    (known as "multisig" in the Bitcoin community),
-    [[BIP 383](bip-0383.mediawiki)], where a signer needs the other signers'
-    authentic extended public keys ("xpubs") to generate multisig addresses,
-    or MuSig2 [[BIP 327](bip-0327.mediawiki)], where a signer needs the other
-    participants' authentic individual public keys to generate an aggregated
-    public key.
+    holder out of band. This requirement is not specific to ChillDKG: any
+    multi-party scheme in which a group key is derived from the participants'
+    individual public keys (e.g., non-interactive key aggregation) equally
+    requires every participant to hold authentic copies of the other
+    participants' keys.
 
     A DKG session will fail if the participants and the coordinator in a session
     don't have the `hostpubkeys` in the same order. This will make sure that
@@ -227,8 +225,8 @@ class SessionParams(NamedTuple):
     the first `t` participants are the primary participants for signing and the
     others are fallback participants). If there is no canonical order of the
     participants in the application, the caller can sort the list of host public
-    keys with the [KeySort algorithm specified in
-    BIP 327](bip-0327.mediawiki#key-sorting) to abstract away from the order.
+    keys lexicographically by their 32-byte encoding to abstract away from the
+    order.
     """
 
     hostpubkeys: list[bytes]
