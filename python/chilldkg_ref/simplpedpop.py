@@ -171,6 +171,7 @@ class DKGOutput(NamedTuple):
     secshare: bytes | None  # None for coordinator
     thresh_pk: bytes
     pubshares: list[bytes]
+    t: int
 
 
 def assemble_sum_coms(
@@ -318,6 +319,7 @@ def participant_step2(
         secshare_tweaked.to_bytes(),
         thresh_pk.to_bytes_compressed(),
         [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        t,
     )
     eq_input = t.to_bytes(4, byteorder="big") + sum_coms.to_bytes()
     return dkg_output, eq_input
@@ -412,6 +414,7 @@ def coordinator_step(
         None,
         thresh_pk.to_bytes_compressed(),
         [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        t,
     )
     eq_input = t.to_bytes(4, byteorder="big") + sum_coms.to_bytes()
     return cmsg, dkg_output, eq_input

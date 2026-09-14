@@ -873,6 +873,31 @@ class ThresholdOrCountError(SessionParamsError)
 
 Raised if `1 <= t <= len(hostpubkeys) <= 2**32 - 1` does not hold.
 
+#### ThresholdInfo Tuples
+
+```python
+class ThresholdInfo(NamedTuple):
+    t: int
+    thresh_pk: bytes
+    pubshares: list[bytes]
+```
+
+Public key material describing a threshold setup.
+
+A `ThresholdInfo` is the public counterpart of a `DKGOutput`: the same
+threshold public key, public shares, and threshold `t`, but without the
+participant's own secret share. It mirrors the "Threshold Info" data
+structure that the FROST signing BIP expects as input.
+
+*Attributes*:
+
+- `t` - The threshold, i.e., the number of participants required to produce a
+  signature.
+- `thresh_pk` - Generated threshold public key representing the group
+  (33 bytes, in compressed serialization).
+- `pubshares` - Public shares of the participants (33 bytes each, in
+  compressed serialization).
+
 #### DKGOutput Tuples
 
 ```python
@@ -880,6 +905,7 @@ class DKGOutput(NamedTuple):
     secshare: bytes | None
     thresh_pk: bytes
     pubshares: list[bytes]
+    t: int
 ```
 
 Holds the outputs of a DKG session.
@@ -892,6 +918,19 @@ Holds the outputs of a DKG session.
   (33 bytes, in compressed serialization).
 - `pubshares` - Public shares of the participants (33 bytes each, in
   compressed serialization).
+- `t` - The threshold, i.e., the number of participants required to produce a
+  signature.
+
+##### to\_threshold\_info
+
+```python
+def to_threshold_info() -> ThresholdInfo
+```
+
+Return this `DKGOutput`'s public key material as a `ThresholdInfo`
+via `dkg_output.to_threshold_info()`.
+
+The result is in the shape that the FROST signing BIP expects as input.
 
 #### participant\_step1
 

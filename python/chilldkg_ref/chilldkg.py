@@ -67,6 +67,7 @@ __all__ = [
     # Types
     "SessionParams",
     "DKGOutput",
+    "ThresholdInfo",
     "ParticipantState1",
     "ParticipantState2",
     "CoordinatorState",
@@ -343,8 +344,31 @@ class ThresholdOrCountError(SessionParamsError):
     """Raised if `1 <= t <= len(hostpubkeys) <= 2**32 - 1` does not hold."""
 
 
-# This is really the same definition as in simplpedpop and encpedpop. We repeat
-# it here only to have its docstring in this module.
+class ThresholdInfo(NamedTuple):
+    """Public key material describing a threshold setup.
+
+    A `ThresholdInfo` is the public counterpart of a `DKGOutput`: the same
+    threshold public key, public shares, and threshold `t`, but without the
+    participant's own secret share. It mirrors the "Threshold Info" data
+    structure that the FROST signing BIP expects as input.
+
+    Attributes:
+        t: The threshold, i.e., the number of participants required to produce a
+            signature.
+        thresh_pk: Generated threshold public key representing the group
+            (33 bytes, in compressed serialization).
+        pubshares: Public shares of the participants (33 bytes each, in
+            compressed serialization).
+    """
+
+    t: int
+    thresh_pk: bytes
+    pubshares: list[bytes]
+
+
+# This has the same fields as the DKGOutput in simplpedpop and encpedpop. We
+# repeat the definition here to attach a docstring and the to_threshold_info()
+# helper.
 class DKGOutput(NamedTuple):
     """Holds the outputs of a DKG session.
 
@@ -355,11 +379,22 @@ class DKGOutput(NamedTuple):
             (33 bytes, in compressed serialization).
         pubshares: Public shares of the participants (33 bytes each, in
             compressed serialization).
+        t: The threshold, i.e., the number of participants required to produce a
+            signature.
     """
 
     secshare: bytes | None
     thresh_pk: bytes
     pubshares: list[bytes]
+    t: int
+
+    def to_threshold_info(self) -> ThresholdInfo:
+        """Return this `DKGOutput`'s public key material as a `ThresholdInfo`
+        via `dkg_output.to_threshold_info()`.
+
+        The result is in the shape that the FROST signing BIP expects as input.
+        """
+        return ThresholdInfo(self.t, self.thresh_pk, self.pubshares)
 
 
 RecoveryData = NewType("RecoveryData", bytes)
@@ -1050,6 +1085,7 @@ def recover(
         None if secshare_tweaked is None else secshare_tweaked.to_bytes(),
         thresh_pk.to_bytes_compressed(),
         [pubshare.to_bytes_compressed() for pubshare in pubshares],
+        t,
     )
     return dkg_output, params
 
