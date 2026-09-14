@@ -140,6 +140,23 @@ def generate_params_hash_vectors():
             "comment": "invalid threshold value",
         }
     )
+    # --- Error test case: n > MAX_PARTICIPANTS ---
+    too_many_hostpubkeys = [
+        chilldkg.hostpubkey_gen(bytes_from_int(i + 1))
+        for i in range(chilldkg.MAX_PARTICIPANTS + 1)
+    ]
+    t = 2
+    invalid_params = chilldkg.SessionParams(too_many_hostpubkeys, t)
+    error = expect_exception(
+        lambda: chilldkg.params_hash(invalid_params), chilldkg.ThresholdOrCountError
+    )
+    error_cases.append(
+        {
+            "params": params_asdict(invalid_params),
+            "expectedError": error,
+            "comment": f"number of participants exceeds {chilldkg.MAX_PARTICIPANTS}",
+        }
+    )
     # --- Error test case: hostpubkeys list contains an invalid value ---
     invalid_hostpubkey = b"\x03" + 31 * b"\x00" + b"\x05"  # Invalid x-coordinate
     t = 2
