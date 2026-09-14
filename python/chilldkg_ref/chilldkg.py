@@ -235,6 +235,11 @@ class SessionParams(NamedTuple):
     participants in the application, the caller can sort the list of host public
     keys with the [KeySort algorithm specified in
     BIP 327](bip-0327.mediawiki#key-sorting) to abstract away from the order.
+
+    **Warning:**
+    When the resulting keys are used with the FROST signing protocol,
+    the number of participants `n = len(hostpubkeys)` is subject to an
+    additional upper bound for security reasons (see [BIP 445](bip-0445.md)).
     """
 
     hostpubkeys: list[bytes]

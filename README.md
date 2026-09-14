@@ -37,7 +37,7 @@ The FROST threshold signature scheme [[KG20](https://eprint.iacr.org/2020/852), 
 in which some threshold `t` of a group of `n` participants is required to produce a signature.
 FROST guarantees unforgeability as long as at most `t - 1` participants are compromised
 and remains functional as long as `t` honest participants do not lose their secret key material,
-where `t` and `n` can be chosen arbitrarily (as long as `1 <= t <= n`).[^t-edge-cases]
+where `t` and `n`[^n-security-bound] can be chosen arbitrarily (as long as `1 <= t <= n`).[^t-edge-cases]
 As a result, threshold signatures increase both security and availability,
 enabling users to escape the inherent dilemma between the contradicting goals of protecting a single secret key against theft and data loss simultaneously.
 
@@ -45,6 +45,8 @@ enabling users to escape the inherent dilemma between the contradicting goals of
 In the case of `t = n`, using a dedicated `n`-of-`n` multi-signature scheme such as MuSig2 [[BIP 327](bip-0327.mediawiki)] instead of FROST avoids the need for an interactive DKG.
 The case `t = 1` can be realized by letting one participant generate an ordinary [BIP 340](bip-0340.mediawiki) key pair and transmitting the key pair to every other participant, who can check its consistency and then simply use the ordinary [BIP 340](bip-0340.mediawiki) signing algorithm.
 Participants still need to ensure that they agree on a key pair. A detailed specification is not in the scope of this document.
+
+[^n-security-bound]: When the DKG output is used with the FROST signing protocol, `n` is subject to an additional upper bound for security reasons: an attacker who chooses which participants to compromise *after* observing the public shares may, for large `n`, be able to forge with fewer than `t` compromised participants, provided it can solve a search problem whose hardness has not been established[[CS25](https://eprint.iacr.org/2025/1001)]. As a precaution, [BIP 445](bip-0445.md) requires `n <= 128`.
 
 [BIP 445](bip-0445.md) provides a specification of the FROST signing protocol tailored to [BIP 340](bip-0340.mediawiki) Schnorr signatures as deployed in Bitcoin.
 However, in order to use the specified protocol, the participants need to generate a shared *threshold public key* (representing the entire group with its `t`-of-`n` policy),
@@ -788,6 +790,11 @@ A `SessionParams` tuple holds the common parameters of a DKG session.
   participants in the application, the caller can sort the list of host public
   keys with the [KeySort algorithm specified in
   BIP 327](bip-0327.mediawiki#key-sorting) to abstract away from the order.
+
+  *Warning:*
+  When the resulting keys are used with the FROST signing protocol,
+  the number of participants `n = len(hostpubkeys)` is subject to an
+  additional upper bound for security reasons (see [BIP 445](bip-0445.md)).
 
 #### params\_hash
 
