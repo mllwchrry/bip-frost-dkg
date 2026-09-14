@@ -23,13 +23,15 @@ done
 sed -z '$ s/\n$//' -i pydoc.md
 
 # Hack to patch in the full definitions of our NamedTuples...
-for name in SessionParams DKGOutput; do
+for name in SessionParams DKGOutput ThresholdInfo; do
     # Replace double \n\n by single \n because this is easier to work with
     sed -z 's/\n\n/\n/g' python/chilldkg_ref/chilldkg.py |
         # Match the definition (ended by a single empty line now)
         sed -n "/^class $name(NamedTuple):/,/^$/p" |
         # Remove docstring
         sed '/^ *"""/,/^ *"""/d' |
+        # Remove methods, keeping only the fields (and the trailing empty line)
+        sed '/^    def /,${/^$/!d}' |
         # Remove trailing newline
         sed -z '$ s/\n$//' |
         # Do the patching

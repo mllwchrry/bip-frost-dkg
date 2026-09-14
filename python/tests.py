@@ -328,13 +328,15 @@ def test_correctness_dkg_output(t, n, dkg_outputs: list[simplpedpop.DKGOutput]):
     secshares = [out[0] for out in dkg_outputs]
     thresh_pks = [out[1] for out in dkg_outputs]
     pubshares = [out[2] for out in dkg_outputs]
+    ts = [out[3] for out in dkg_outputs]
 
-    # Check that the threshold pubkey and pubshares are the same for the
-    # coordinator (at [0]) and all participants (at [1:n + 1]).
+    # Check that the threshold pubkey, pubshares, and threshold t are the same
+    # for the coordinator (at [0]) and all participants (at [1:n + 1]).
     for i in range(n + 1):
         assert thresh_pks[0] == thresh_pks[i]
         assert len(pubshares[i]) == n
         assert pubshares[0] == pubshares[i]
+        assert ts[i] == t
     thresh_pk = thresh_pks[0]
 
     # Check that the coordinator has no secret share
@@ -354,6 +356,15 @@ def test_correctness_dkg_output(t, n, dkg_outputs: list[simplpedpop.DKGOutput]):
     for tsubset in combinations(range(1, n + 1), t):
         recovered = recover_secret(tsubset, [secshares_scalar[i] for i in tsubset])
         assert recovered * G == GE.from_bytes_compressed(thresh_pk)
+
+
+def test_dkg_output_to_threshold_info():
+    # Check that DKGOutput.to_threshold_info() drops the secret share and returns
+    # the public key material in the shape the signing BIP expects as input.
+    thresh_pk = random_bytes(33)
+    pubshares = [random_bytes(33) for _ in range(3)]
+    out = chilldkg.DKGOutput(random_bytes(32), thresh_pk, pubshares, 2)
+    assert out.to_threshold_info() == chilldkg.ThresholdInfo(2, thresh_pk, pubshares)
 
 
 def test_correctness(t, n, simulate_dkg, recovery=False, investigation=False):
@@ -381,14 +392,10 @@ def test_correctness(t, n, simulate_dkg, recovery=False, investigation=False):
         # chilldkg.coordinator_recover
         for i in range(n + 1):
             if seeds[i] is None:
-                (secshare, thresh_pk, pubshares), _ = chilldkg.coordinator_recover(rec)
+                out, _ = chilldkg.coordinator_recover(rec)
             else:
-                (secshare, thresh_pk, pubshares), _ = chilldkg.participant_recover(
-                    seeds[i], rec
-                )
-            assert secshare == dkg_outputs[i][0]
-            assert thresh_pk == dkg_outputs[i][1]
-            assert pubshares == dkg_outputs[i][2]
+                out, _ = chilldkg.participant_recover(seeds[i], rec)
+            assert out == dkg_outputs[i]
 
 
 VECTORS_DIR = Path(__file__).parent.parent / "vectors"
@@ -894,6 +901,7 @@ test_chilldkg_params_validate()
 test_vss_correctness()
 test_recover_secret()
 test_recovery_acknowledgment()
+test_dkg_output_to_threshold_info()
 for t, n in [(1, 1), (1, 2), (2, 2), (2, 3), (2, 5)]:
     test_correctness(t, n, simulate_simplpedpop)
     test_correctness(t, n, simulate_simplpedpop, investigation=True)
