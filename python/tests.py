@@ -3,7 +3,6 @@
 """Tests for ChillDKG reference implementation"""
 
 import json
-from itertools import combinations
 from pathlib import Path
 from random import randint
 from secrets import token_bytes as random_bytes
@@ -291,36 +290,137 @@ def simulate_chilldkg_full(
     return simulate_chilldkg_full_example(hostseckeys, params, faulty_id=None)
 
 
-def derive_interpolating_value(L, x_i):
-    assert x_i in L
-    assert all(L.count(x_j) <= 1 for x_j in L)
-    lam = Scalar(1)
-    for x_j in L:
-        x_j = Scalar(x_j)
-        x_i = Scalar(x_i)
-        if x_j == x_i:
+# The following functions are copied from the reference implementation of the
+# FROST signing BIP (BIP 445), see
+# https://github.com/siv2r/bip-frost-signing/blob/4f0c845c0185410f3d17f3cd3b7ef866e2d4123c/python/frost_ref/signing.py
+# Only the type annotations were adapted: `bytes` is used instead of the signing
+# BIP's `PlainPk`, and `ThresholdInfo` is the one from chilldkg. The checks in
+# `validate_threshold_info` are exactly those that the signing BIP requires the
+# public key material to pass before it is used for signing.
+
+# Upper bound on the total number of participants n imposed by the signing BIP.
+MAX_PARTICIPANTS = 128
+
+
+def has_duplicates(lst: list[int]) -> bool:
+    return len(set(lst)) != len(lst)
+
+
+def derive_pubshare_at(ids: list[int], pubshares: list[GE], x: int) -> GE:
+    assert len(ids) == len(pubshares)
+    assert not has_duplicates(ids)
+    Q = GE()
+    for my_id, X_i in zip(ids, pubshares):
+        assert 0 <= my_id < 2**32
+        num = Scalar(1)
+        deno = Scalar(1)
+        for curr_id in ids:
+            if curr_id == my_id:
+                continue
+            num *= Scalar(x - curr_id)
+            deno *= Scalar(my_id - curr_id)
+        Q += (num / deno) * X_i
+    return Q  # can be infinity
+
+
+def derive_thresh_pubkey(ids: list[int], pubshares: list[GE]) -> bytes:
+    # derive_pubshare_at evaluates in identifier space. Identifiers are 0-based,
+    # so participant id sits at polynomial x-coordinate id + 1, and the secret,
+    # the constant term at x-coordinate 0, is equal to the identifier -1.
+    Q = derive_pubshare_at(ids, pubshares, -1)
+    if Q.infinity:
+        raise ValueError("The threshold public key must not be the point at infinity.")
+    return Q.to_bytes_compressed()
+
+
+def validate_threshold_info(info: chilldkg.ThresholdInfo) -> None:
+    t, thresh_pk, pubshares = info
+    n = len(pubshares)
+
+    if not (1 <= t <= n):
+        raise ValueError("The threshold must be 1 <= t <= n.")
+    if n > MAX_PARTICIPANTS:
+        raise ValueError(f"The number of participants must be n <= {MAX_PARTICIPANTS}.")
+
+    # 1. Validate the threshold public key
+    # deserializing before interpolating ensures serialization failures
+    # are caught before cryptographic inconsistencies.
+    try:
+        GE.from_bytes_compressed(thresh_pk)
+    except ValueError:
+        raise ValueError("Invalid threshold public key.")
+
+    # 2. Extract and parse present public shares
+    parsed_shares = []
+    for i, pubshare_bytes in enumerate(pubshares):
+        if pubshare_bytes is None:
             continue
-        lam *= x_j / (x_j - x_i)
-    return lam
+        try:
+            point = GE.from_bytes_compressed(pubshare_bytes)
+            parsed_shares.append((i, point))
+        except ValueError:
+            raise ValueError(f"Invalid pubshare at index {i}.")
+
+    if len(parsed_shares) < t:
+        raise ValueError("At least t pubshares must be present.")
+
+    # 3. Establish the base set for polynomial interpolation
+    base_ids = [i for i, _ in parsed_shares[:t]]
+    base_points = [point for _, point in parsed_shares[:t]]
+
+    # 3.1 Ensure all pubshares shares lie on the same polynomial
+    for i, point in parsed_shares[t:]:
+        if derive_pubshare_at(base_ids, base_points, i) != point:
+            raise ValueError(
+                "The provided key material is incorrect: the public shares do not lie on a single polynomial."
+            )
+    # 3.2 Ensure the derived threshold key matches the provided one
+    if derive_thresh_pubkey(base_ids, base_points) != thresh_pk:
+        raise ValueError(
+            "The provided key material is incorrect: the public shares do not match the threshold public key."
+        )
 
 
-def recover_secret(participant_ids, shares) -> Scalar:
-    interpolated_shares = []
-    t = len(shares)
-    assert len(participant_ids) == t
-    for i in range(t):
-        lam = derive_interpolating_value(participant_ids, participant_ids[i])
-        interpolated_shares += [(lam * shares[i])]
-    recovered_secret = Scalar.sum(*interpolated_shares)
-    return recovered_secret
+def test_validate_threshold_info():
+    # Sanity check of the copied validation function.
+    t, n = 2, 3
+    f = Polynomial([randint(1, GE.ORDER - 1) for _ in range(t)])
+    thresh_pk = (f(0) * G).to_bytes_compressed()
+    pubshares = [(f(i + 1) * G).to_bytes_compressed() for i in range(n)]
+    # A point on the polynomial, but at a position that belongs to no participant
+    other_point = (f(n + 1) * G).to_bytes_compressed()
+    # Public shares of a polynomial with constant term 0, i.e., shares whose
+    # threshold public key would be the point at infinity
+    f_zero = Polynomial([0] + f.coeffs[1:])
+    zero_pubshares = [(f_zero(i + 1) * G).to_bytes_compressed() for i in range(n)]
 
+    info = chilldkg.ThresholdInfo(t, thresh_pk, pubshares)
+    validate_threshold_info(info)
 
-def test_recover_secret():
-    f = Polynomial([23, 42])
-    shares = [f(i) for i in [1, 2, 3]]
-    assert recover_secret([1, 2], [shares[0], shares[1]]) == f.coeffs[0]
-    assert recover_secret([1, 3], [shares[0], shares[2]]) == f.coeffs[0]
-    assert recover_secret([2, 3], [shares[1], shares[2]]) == f.coeffs[0]
+    invalid_infos = [
+        # Threshold out of range
+        info._replace(t=0),
+        info._replace(t=n + 1),
+        # Threshold public key is not a valid point
+        info._replace(thresh_pk=b"\x00" * 33),
+        # Threshold public key does not match the public shares
+        info._replace(thresh_pk=other_point),
+        # A public share is not a valid point
+        info._replace(pubshares=pubshares[:-1] + [b"\x00" * 33]),
+        # A public share does not lie on the polynomial through the first t
+        info._replace(pubshares=pubshares[:-1] + [other_point]),
+        # The public shares interpolate to the point at infinity
+        info._replace(pubshares=zero_pubshares),
+        # Too many participants for the signing BIP
+        info._replace(pubshares=[pubshares[0]] * (MAX_PARTICIPANTS + 1)),
+    ]
+    for invalid_info in invalid_infos:
+        try:
+            validate_threshold_info(invalid_info)
+        except ValueError:
+            pass
+        else:
+            assert False, "Expected exception"
 
 
 def test_correctness_dkg_output(t, n, dkg_outputs: list[simplpedpop.DKGOutput]):
@@ -352,10 +452,9 @@ def test_correctness_dkg_output(t, n, dkg_outputs: list[simplpedpop.DKGOutput]):
         assert s is not None
         assert s * G == GE.from_bytes_compressed(pubshares[0][i - 1])
 
-    # Check that all combinations of t participants can recover the threshold pubkey
-    for tsubset in combinations(range(1, n + 1), t):
-        recovered = recover_secret(tsubset, [secshares_scalar[i] for i in tsubset])
-        assert recovered * G == GE.from_bytes_compressed(thresh_pk)
+    # Check that the public key material passes the validation that the FROST
+    # signing BIP requires before signing.
+    validate_threshold_info(chilldkg.ThresholdInfo(t, thresh_pk, pubshares[0]))
 
 
 def test_dkg_output_to_threshold_info():
@@ -899,7 +998,7 @@ def test_recovery_acknowledgment():
 
 test_chilldkg_params_validate()
 test_vss_correctness()
-test_recover_secret()
+test_validate_threshold_info()
 test_recovery_acknowledgment()
 test_dkg_output_to_threshold_info()
 for t, n in [(1, 1), (1, 2), (2, 2), (2, 3), (2, 5)]:
